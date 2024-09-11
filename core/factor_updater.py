@@ -23,6 +23,7 @@ import signal
 
 from receiver.rcv_fr_lord import LordWithFilter
 from core.task_scheduler import TaskScheduler
+from core.database_handler import DatabaseHandler
 from utils.logutils import FishStyleLogger
 from utils.dirutils import load_path_config
 
@@ -37,6 +38,7 @@ class FactorUpdater(ABC):
         self._init_log()
         self._init_msg_controller()
         self._init_task_scheduler()
+        self._init_database_handler()
         self._init_param_set()
         self._set_up_signal_handler()
         self._running = True
@@ -62,6 +64,9 @@ class FactorUpdater(ABC):
         
         self.address = self.params['address']
         self.topic_list = self.params['topic']
+        self.mysql_name = self.params['mysql_name']
+        self.author = self.params['author']
+        self.category = self.params['category']
         
     def _init_param_set(self):
         factor_related = self.params.get('factors_related', {})
@@ -76,6 +81,9 @@ class FactorUpdater(ABC):
         
     def _init_task_scheduler(self):
         self.task_scheduler = TaskScheduler(log=self.log)
+        
+    def _init_database_handler(self):
+        self.db_handler = DatabaseHandler(self.mysql_name, log=self.log)
         
     def _set_up_signal_handler(self):
         signal.signal(signal.SIGINT, self._signal_handler)
