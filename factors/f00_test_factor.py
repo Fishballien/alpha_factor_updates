@@ -173,7 +173,7 @@ class F00TestFactor(FactorUpdater):
         # 本部分需要集成各类参数与mgr，故暂不做抽象
         # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
         self.task_scheduler.add_task("1 Minute Record", 'second', 3, self._minute_record)
-        self.task_scheduler.add_task("30 Minutes Final", 'minute', 1, self._half_hour_record)
+        self.task_scheduler.add_task("30 Minutes Final and Send", 'minute', 1, self._half_hour_record_n_send)
         self.task_scheduler.add_task("1 Minute Save to Cache", 'second', 3, self._minute_save_to_cache)
         self.task_scheduler.add_task("30 Minutes Save to Persist", 'minute', 1, self._half_hour_save_to_final)
         
@@ -181,7 +181,7 @@ class F00TestFactor(FactorUpdater):
         for amount_type, factor_amount_type in self.immediate_mgr.factor.items():
             self.cache_mgr.add_row(amount_type, factor_amount_type, ts)
                 
-    def _half_hour_record(self, ts):
+    def _half_hour_record_n_send(self, ts):
         for pr in self.param_set:
             amount_type = pr['amount_type']
             mmt_wd = pr['mmt_wd']
@@ -190,9 +190,10 @@ class F00TestFactor(FactorUpdater):
             mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
             factor_ma = factor_per_minute.loc[ts-mmt_wd_lookback:].mean(axis=0)
             self.persist_mgr.add_row(pr_name, factor_ma, ts)
+            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_ma)
             
         self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
-        
+
     def _minute_save_to_cache(self, ts):
         self.cache_mgr.save(ts)
             
