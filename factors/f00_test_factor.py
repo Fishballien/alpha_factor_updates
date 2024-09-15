@@ -178,7 +178,7 @@ class F00TestFactor(FactorUpdater):
         self.task_scheduler.add_task("30 Minutes Save to Persist", 'minute', 1, self._half_hour_save_to_final)
         
     def _minute_record(self, ts):
-        for amount_type, factor_amount_type in self.immediate_mgr.factor.items():
+        for amount_type, factor_amount_type in list(self.immediate_mgr.factor.items()):
             self.cache_mgr.add_row(amount_type, factor_amount_type, ts)
                 
     def _half_hour_record_n_send(self, ts):
@@ -189,8 +189,8 @@ class F00TestFactor(FactorUpdater):
             factor_per_minute = self.cache_mgr.cache[amount_type]
             mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
             factor_ma = factor_per_minute.loc[ts-mmt_wd_lookback:].mean(axis=0)
-            self.persist_mgr.add_row(pr_name, factor_ma, ts)
             self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_ma)
+            self.persist_mgr.add_row(pr_name, factor_ma, ts)
             
         self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
 
