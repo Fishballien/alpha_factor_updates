@@ -37,17 +37,19 @@ sys.path.append(str(project_dir))
 
 # %%
 from core.factor_updater import FactorUpdater
+from core.task_scheduler import TaskScheduler
 from core.cache_persist_manager import CacheManager, PersistenceManager
 from core.immediate_process_manager import ImmediateProcessManager
 from utils.data_parser import convert_to_lowercase
 from utils.timeutils import parse_time_string
+from utils.decorator_utils import timeit
 
 
 # %% cache & persist
 class MyCacheMgr(CacheManager):
     
     def _init_cache_mapping(self):
-        amount_type_list = self.params['factors_related']['amount_type']
+        amount_type_list = self.params['factors_related']['final']['amount_type']
         for amount_type in amount_type_list:
             cache_path = self.cache_dir / f'cache_1min_{amount_type}.parquet'
             self.cache_mapping[amount_type]['path'] = cache_path
@@ -143,6 +145,7 @@ class F00TestFactor(FactorUpdater):
         
         self._init_param_names()
         self._init_lookback_mapping()
+        self._init_task_scheduler()
         self._init_managers()
         self._add_tasks()
         
@@ -154,11 +157,14 @@ class F00TestFactor(FactorUpdater):
         
     def _init_lookback_mapping(self):
         cache_period = self.params['record']['cache_period']
-        mmt_wd_list = self.params['factors_related']['mmt_wd']
+        mmt_wd_list = self.params['factors_related']['final']['mmt_wd']
         
         self.cache_lookback = timedelta(seconds=parse_time_string(cache_period))
         self.mmt_wd_lookback_mapping = {mmt_wd: timedelta(seconds=parse_time_string(mmt_wd)) 
                                    for mmt_wd in mmt_wd_list}
+        
+    def _init_task_scheduler(self):
+        self.task_scheduler = {name: TaskScheduler(log=self.log) for name in ['calc', 'io']}
         
     def _init_managers(self):
         # 即时记录
@@ -172,15 +178,21 @@ class F00TestFactor(FactorUpdater):
         # 按同时触发时预期的执行顺序排列
         # 本部分需要集成各类参数与mgr，故暂不做抽象
         # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
-        self.task_scheduler.add_task("1 Minute Record", 'second', 3, self._minute_record)
-        self.task_scheduler.add_task("30 Minutes Final and Send", 'minute', 1, self._half_hour_record_n_send)
-        self.task_scheduler.add_task("1 Minute Save to Cache", 'second', 3, self._minute_save_to_cache)
-        self.task_scheduler.add_task("30 Minutes Save to Persist", 'minute', 1, self._half_hour_save_to_final)
         
+        ## calc
+        self.task_scheduler['calc'].add_task("1 Minute Record", 'second', 3, self._minute_record)
+        self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 1, self._half_hour_record_n_send)
+        
+        ## io
+        self.task_scheduler['io'].add_task("1 Minute Save to Cache", 'minute', 1, self._minute_save_to_cache)
+        self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 1, self._half_hour_save_to_final)
+    
+    @timeit
     def _minute_record(self, ts):
         for amount_type, factor_amount_type in list(self.immediate_mgr.factor.items()):
             self.cache_mgr.add_row(amount_type, factor_amount_type, ts)
-                
+    
+    @timeit
     def _half_hour_record_n_send(self, ts):
         for pr in self.param_set:
             amount_type = pr['amount_type']
@@ -193,23 +205,27 @@ class F00TestFactor(FactorUpdater):
             self.persist_mgr.add_row(pr_name, factor_ma, ts)
             
         self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
-
+    
+    @timeit
     def _minute_save_to_cache(self, ts):
         self.cache_mgr.save(ts)
-            
+    
+    @timeit
     def _half_hour_save_to_final(self, ts):
         self.persist_mgr.save(ts)
 
     def run(self):
         self.msg_controller.start() # 占一条线程，用于收取lord消息存队列
         self.immediate_mgr.start() # 占一条线程，用于即时处理队列消息
-        self.task_scheduler.start() # 主线程：处理任务 + 辅助线程：任务调度
+        self.task_scheduler['io'].start() # 占2跳线程：处理任务 + 任务调度
+        self.task_scheduler['calc'].start(use_thread_for_task_runner=False) # 主线程：处理任务 + 辅助线程：任务调度
         
     def stop(self):
-        self._running = False
+        self.running = False
         self.msg_controller.stop()
         self.immediate_mgr.stop()
-        self.task_scheduler.stop()
+        for task_name, task_scheduler in self.task_scheduler.items():
+            task_scheduler.stop()
     
         
 # %%

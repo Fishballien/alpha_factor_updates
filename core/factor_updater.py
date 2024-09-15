@@ -12,6 +12,7 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 
 """
 # %% imports
+import os
 from pathlib import Path
 import toml
 import itertools
@@ -19,10 +20,10 @@ import time
 import sys
 from abc import ABC, abstractmethod
 import signal
+import threading
 
 
 from receiver.rcv_fr_lord import LordWithFilter
-from core.task_scheduler import TaskScheduler
 from core.database_handler import DatabaseHandler
 from utils.logutils import FishStyleLogger
 from utils.dirutils import load_path_config
@@ -38,11 +39,10 @@ class FactorUpdater(ABC):
         self._load_param()
         self._init_log()
         self._init_msg_controller()
-        self._init_task_scheduler()
         self._init_database_handler()
         self._init_param_set()
         self._set_up_signal_handler()
-        self._running = True
+        self.running = True
         
     def _load_path_config(self):
         file_path = Path(__file__).resolve()
@@ -81,9 +81,6 @@ class FactorUpdater(ABC):
         
     def _init_msg_controller(self):
         self.msg_controller = LordWithFilter(self.topic_list, address=self.address, log=self.log)
-        
-    def _init_task_scheduler(self):
-        self.task_scheduler = TaskScheduler(log=self.log)
         
     def _init_database_handler(self):
         self.db_handler = DatabaseHandler(self.mysql_name, log=self.log)

@@ -97,7 +97,7 @@ class TaskScheduler:
                 first_run_time = datetime.strptime(frequency_value[0], '%H:%M').replace(year=now.year, month=now.month, day=now.day)
                 next_run_time = first_run_time + timedelta(days=1)
             return next_run_time
-
+        
     @run_by_thread
     def _trigger_events(self):
         """
@@ -123,7 +123,7 @@ class TaskScheduler:
             if tasks_to_execute:
                 self.task_event.set()
                 tasks_to_execute = False
-
+        
     def _task_runner(self):
         """
         任务执行线程，从队列中执行任务，保证按顺序执行
@@ -139,13 +139,23 @@ class TaskScheduler:
                 task['task_fn'](current_run_time)
 
             self.task_event.clear()
+    
+    @run_by_thread(daemon=False)
+    def _task_runner_by_thread(self):
+        self._task_runner()
 
-    def start(self):
+    def start(self, use_thread_for_task_runner=True):
         """
         启动调度器
+        :param use_thread_for_task_runner: 是否在单独线程中运行 task_runner
         """
         self._trigger_events()
-        self._task_runner()
+        
+        # 根据参数决定是否在单独线程中运行 task_runner
+        if use_thread_for_task_runner:
+            self._task_runner_by_thread()
+        else:
+            self._task_runner()  # 同步运行，不使用线程
 
     def stop(self):
         """
