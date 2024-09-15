@@ -63,7 +63,6 @@ class Processor:
     def __init__(self, pb_msg):
         header = pb_msg.header
         self.symbol = convert_to_lowercase(header.symbol)
-        print(header.symbol, self.symbol)
         self.ts = header.timestamp
         
     
