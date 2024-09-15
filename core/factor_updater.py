@@ -26,6 +26,7 @@ from core.task_scheduler import TaskScheduler
 from core.database_handler import DatabaseHandler
 from utils.logutils import FishStyleLogger
 from utils.dirutils import load_path_config
+from utils.market import load_binance_data, get_binance_tick_size, usd
 
 
 # %%
@@ -71,7 +72,9 @@ class FactorUpdater(ABC):
     def _init_param_set(self):
         factor_related = self.params.get('factors_related', {})
         if factor_related:
-            self.param_set = para_allocation(factor_related)
+            final_param = factor_related['final']
+            if final_param:
+                self.param_set = para_allocation(final_param)
 
     def _init_log(self):
         self.log = FishStyleLogger()
@@ -104,6 +107,23 @@ class FactorUpdater(ABC):
     @abstractmethod
     def stop(self):
         pass
+    
+    
+class FactorUpdaterWithTickSize(FactorUpdater):
+    
+    def __init__(self):
+        super().__init__()
+        self._init_exchange()
+        self.reload_tick_size_mapping()
+        
+    def _init_exchange(self):
+        exchange = self.params['exchange']
+        self.exchange_info_dir = Path(self.path_config['exchange_info'])
+        self.exchange = globals()[exchange]
+        
+    def reload_tick_size_mapping(self):
+        exchange_info = load_binance_data(self.exchange, self.exchange_info_dir)
+        self.tick_size_mapping = get_binance_tick_size(exchange_info)
         
 
 # %%
