@@ -45,8 +45,8 @@ def deserialize_pb(data, pb_class): # fr xwy
     
     
 def convert_to_lowercase(symbol):
-    # 使用正则表达式匹配 .BN 前面的部分
-    match = re.search(r'([a-zA-Z]+)\.BN$', symbol)
+    # 使用正则表达式匹配 .BN 前面的部分，允许字母和数字的组合
+    match = re.search(r'(\w+)\.BN$', symbol)
     
     if match:
         # 提取匹配到的内容，并将其转化为小写
