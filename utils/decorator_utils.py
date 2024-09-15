@@ -31,9 +31,24 @@ def run_by_thread(func, daemon=True, *args, **kwargs):
     return thread
 
 
-@run_by_thread()
-@run_every(interval=1)
-def func():
-    print(time.time())
-    time.sleep(0.5)
-    
+# %%
+def timeit(func):
+    """装饰器函数，用于测量函数执行时间"""
+    def wrapper(*args, **kwargs):
+        start_time = time.time()  # 记录函数开始时间
+        result = func(*args, **kwargs)  # 调用函数
+        end_time = time.time()  # 记录函数结束时间
+        print(f"{func.__name__} ran in {end_time - start_time:.4f} seconds")
+        return result
+    return wrapper
+
+
+# %%
+if __name__=='__main__':
+    @run_by_thread()
+    @run_every(interval=1)
+    def func():
+        print(time.time())
+        time.sleep(0.5)
+    func()
+        
