@@ -118,7 +118,13 @@ class DatabaseHandler:
             connection = self.connect()
             if not connection:
                 return  # 如果没有连接上，不继续执行插入
-
+    
+            # 过滤掉空值（None 或 NaN）
+            filtered_series = series.dropna()
+    
+            if filtered_series.empty:
+                return  # 如果过滤后没有数据，则不进行插入
+    
             # 执行批量插入操作
             cursor = connection.cursor()
             insert_query = """
@@ -130,9 +136,9 @@ class DatabaseHandler:
             # 准备批量插入的数据
             data_to_insert = [
                 (author, factor_category, factor_name, symbol, factor_value)
-                for symbol, factor_value in series.items()
+                for symbol, factor_value in filtered_series.items()
             ]
-
+    
             # 批量执行插入操作
             cursor.executemany(insert_query, data_to_insert)
             connection.commit()
