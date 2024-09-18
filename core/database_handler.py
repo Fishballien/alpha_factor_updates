@@ -113,6 +113,7 @@ class DatabaseHandler:
         :param series: 一个 Pandas Series，索引为 symbol，值为因子值
         """
         connection = None
+        cursor = None
         try:
             # 建立数据库连接，带有自动重试机制
             connection = self.connect()
@@ -148,8 +149,9 @@ class DatabaseHandler:
         
         finally:
             # 关闭游标和连接
-            if connection and connection.open:
+            if cursor:  # 检查 cursor 是否已成功创建
                 cursor.close()
+            if connection:
                 connection.close()
 
 
