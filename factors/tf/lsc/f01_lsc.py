@@ -9,20 +9,19 @@ Date: Sep 12, 2024
 # %% imports
 import os
 import sys
-import traceback
 import numpy as np
 import pandas as pd
 
 from pathlib import Path
 from copy import deepcopy
-from time import time, sleep
+from time import sleep
 from datetime import timedelta
 from collections import defaultdict
 
 # % % add sys path
 file_path = Path(__file__).resolve()
 file_dir = file_path.parents[0]
-project_dir = file_path.parents[1]
+project_dir = file_path.parents[3]
 sys.path.append(str(project_dir))
 
 # % %
@@ -32,7 +31,6 @@ from core.cache_persist_manager import CacheManager, PersistenceManager
 from core.immediate_process_manager import ImmediateProcessManager
 from utils.datautils import add_row_to_dataframe_reindex
 from utils.data_parser import convert_to_lowercase
-from utils.decorator_utils import run_by_thread
 from utils.timeutils import parse_time_string
 
 
@@ -93,9 +91,7 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         symbol = convert_to_lowercase(header.symbol)
         ts = header.timestamp
         
-        print(pb_msg.header.timestamp, pb_msg.header.symbol, pb_msg.bar.open, pb_msg.bar.close)
-        
-        # self.factor['total'][symbol] = imb
+        # print(pb_msg.header.timestamp, pb_msg.header.symbol, pb_msg.bar.open, pb_msg.bar.close)
         self.update_time[symbol] = ts
     
     def _process_cc_trade(self, pb_msg):
@@ -104,11 +100,7 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         ts = header.timestamp
         
         # print(pb_msg.header, pb_msg.trade)
-        
-        # self.factor['volume'][symbol].append(pb_msg.trade)
         self.factor['trade'].append((symbol, ts, pb_msg.trade))
-        # self.factor[symbol].append(pb_msg.trade)
-        # self.trade[symbol].append(pb_msg.trade)
         self.update_time[symbol] = ts
 
 # %%
@@ -202,10 +194,8 @@ class F01Lsc(FactorUpdater):
         # 本部分需要集成各类参数与mgr，故暂不做抽象
         # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
         self.task_scheduler['calc'].add_task("1 Minute Record", 'second', 60, self._minute_record)
-        # self.task_scheduler.add_task("30 Minutes Final and Send", 'minute', 1, self._half_hour_record_n_send)
         self.task_scheduler['io'].add_task("5 Minute Save to Cache", 'minute', 5, self._5min_save_to_cache)
         self.task_scheduler['io'].add_task("30 Minutes Calculate Factor & Save to Persist", 'minute', 5, self._half_hour_save_factor)
-        # self.task_scheduler.add_task("30 Minutes Save to Persist", 'minute', 5, self._half_hour_save_to_final)
         
     def _minute_record(self, ts):
         for amount_type in sorted(self.immediate_mgr.factor.keys()):
