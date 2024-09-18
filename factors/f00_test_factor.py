@@ -48,30 +48,20 @@ from utils.decorator_utils import timeit
 # %% cache & persist
 class MyCacheMgr(CacheManager):
     
-    def _init_cache_mapping(self):
+    def init_cache_mapping(self):
         amount_type_list = self.params['factors_related']['final']['amount_type']
-        for amount_type in amount_type_list:
-            cache_path = self.cache_dir / f'cache_1min_{amount_type}.parquet'
-            self.cache_mapping[amount_type]['path'] = cache_path
-            self.cache_mapping[amount_type]['container'] = self.cache
-            self.cache_mapping[amount_type]['key'] = amount_type # 和mapping的键值一样，但若有多个容器，就可能不同
-            
+        self.cache_mapping = {amount_type: amount_type for amount_type in amount_type_list}
+        # 若由多个参数组成，也可以是
+        # self.cache_mapping = {(side_type, amount_type): f'{side_type}_{amount_type}'
+        #                       for amount_type in amount_type_list}
             
 class MyPersistenceMgr(PersistenceManager):
     
-    def _init_persist_mapping(self):
+    def init_persist_list(self):
         for pr in self.param_set:
             pr_name = pr['name']
-            pr_persist_dir = self.persist_dir / pr_name
-            pr_persist_dir.mkdir(parents=True, exist_ok=True)
-            self.persist_mapping[pr_name]['dir'] = pr_persist_dir
-            self.persist_mapping[pr_name]['container'] = self.factor_persist
-            self.persist_mapping[pr_name]['key'] = pr_name
-        ts_persist_dir = self.persist_dir / 'update_time'
-        ts_persist_dir.mkdir(parents=True, exist_ok=True)
-        self.persist_mapping['update_time']['dir'] = ts_persist_dir
-        self.persist_mapping['update_time']['container'] = self.factor_persist
-        self.persist_mapping['update_time']['key'] = 'update_time'
+            self.persist_list.append(pr_name)
+        self.persist_list.append('update_time')
         
         
 # %% immediate process
@@ -171,7 +161,7 @@ class F00TestFactor(FactorUpdater):
         self.immediate_mgr = MyImmediateProcessMgr(self.topic_list, self.msg_controller, log=None)
         # 定时记录
         self.cache_mgr = MyCacheMgr(self.params, self.param_set, self.cache_dir, 
-                                  self.cache_lookback, log=self.log)
+                                  self.cache_lookback, file_name='cache', log=self.log)
         self.persist_mgr = MyPersistenceMgr(self.params, self.param_set, self.persist_dir, log=self.log)
 
     def _add_tasks(self):
