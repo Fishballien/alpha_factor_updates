@@ -188,7 +188,7 @@ class F00TestFactor(FactorUpdater):
             amount_type = pr['amount_type']
             mmt_wd = pr['mmt_wd']
             pr_name = pr['name']
-            factor_per_minute = self.cache_mgr.cache[amount_type]
+            factor_per_minute = self.cache_mgr[amount_type]
             mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
             factor_ma = factor_per_minute.loc[ts-mmt_wd_lookback:].mean(axis=0)
             self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_ma)

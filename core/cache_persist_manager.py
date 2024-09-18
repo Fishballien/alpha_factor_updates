@@ -57,10 +57,11 @@ class DataManager(ABC):
             self.log.success(f'Successfully saved data to {path}')
 
     def _load_from_h5_batch(self, path, container, keys):
+        loaded_info = {}
         with h5py.File(path, 'r') as f:
             for key in keys:
                 if key in f:
-                    data = np.array(f[key])  # 默认的加载行为，保留
+                    data = np.array(f[key])
                     # 判断 index 是否为时间戳字符串格式
                     index = [
                         pd.Timestamp(i) if isinstance(i, str) and "T" in i else i.decode('utf-8') if isinstance(i, bytes) else i
@@ -70,7 +71,9 @@ class DataManager(ABC):
                         col.decode('utf-8') if isinstance(col, bytes) else col for col in f[key].attrs['columns']
                     ]
                     container[key] = pd.DataFrame(data, index=index, columns=columns)
-                    # print(container[key])
+                    loaded_info[key] = data.shape
+        if self.log:
+            self.log.success(f'Loaded details: {loaded_info}')
 
     def _add_row(self, container, key, new_row, index):
         container[key] = add_row_to_dataframe_reindex(container[key], new_row, index)
@@ -120,12 +123,15 @@ class CacheManager(DataManager):
         
         # 批量保存到 HDF5 文件，直接传 self.cache 并使用保存名
         path = self.cache_dir / f'{self.file_name}.h5'
-        # print(self.cache)
         self._save_to_h5_batch(path, self.cache)
             
     def add_row(self, access_name, new_row, index):
         save_name = self.cache_mapping[access_name]
         self._add_row(self.cache, save_name, new_row, index)
+        
+    def __getitem__(self, access_name):
+        save_name = self.cache_mapping[access_name]
+        return self.cache[save_name]
 
 
 class PersistenceManager(DataManager):
@@ -154,7 +160,7 @@ class PersistenceManager(DataManager):
         
     def _load_or_init_persist(self):
         date_to_load = get_curr_utc_date()  # 根据当前日期生成文件名
-        path = self.persist_dir / f'{date_to_load}.h5'  # 使用斜杠连接路径
+        path = self.persist_dir / f'{date_to_load}.h5'
         self._load_or_init_batch(path, self.factor_persist, self.persist_list, type_name='Persist')
             
     def save(self, ts):
@@ -162,7 +168,6 @@ class PersistenceManager(DataManager):
         for key in self.persist_list:
             self.factor_persist[key] = self.factor_persist[key].loc[date_to_save:]  # 保存当天数据
         
-        # 批量保存到 HDF5 文件，直接传 self.factor_persist
         path = self.persist_dir / f'{date_to_save}.h5'
         self._save_to_h5_batch(path, self.factor_persist)
             
