@@ -91,7 +91,7 @@ class Statmr(FactorUpdater):
         self._init_managers()
         
         self._load_size_threshold()
-        self._load_init_cahe()
+        # self._load_init_cahe()
         self._load_init_persist()
         
         self._init_task_scheduler()
