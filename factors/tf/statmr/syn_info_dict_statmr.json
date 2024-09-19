@@ -1,0 +1,69 @@
+{
+    "0": [
+        "amount",
+        "B",
+        "S",
+        "1min",
+        "5min",
+        {
+            "P25OverP75": {
+                "original": [
+                    0
+                ]
+            },
+            "int": {
+                "original": [
+                    0
+                ]
+            },
+            "std": {
+                "original": [
+                    0,
+                    5
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    0
+                ]
+            }
+        }
+    ],
+    "1": [
+        "BA_amount",
+        "order_min",
+        "log_org",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "P25OverP75": {
+                "original": [
+                    0
+                ]
+            },
+            "int": {
+                "pctchg20": [
+                    0
+                ]
+            },
+            "std": {
+                "original": [
+                    0
+                ],
+                "pctchg20": [
+                    0
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    0
+                ],
+                "pctchg20": [
+                    0
+                ]
+            }
+        }
+    ]
+}
