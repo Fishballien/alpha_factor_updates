@@ -18,6 +18,10 @@ from collections import namedtuple
 from pathlib import Path
 
 
+# %%
+MINIMUM_SIZE_FILTER = 1e-8
+
+
 # %% struct
 Exchange = namedtuple('Exchange', ['name', 'tardis_name', 'api_name'])
 

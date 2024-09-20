@@ -37,7 +37,7 @@ from utils.timeutils import parse_time_string
 # % % cache & persist
 class MyCacheMgr(CacheManager):
     
-    def __init__(self, params, param_set, cache_dir, cache_lookback, log=None):
+    def __init__(self, params, param_set, cache_dir, cache_lookback, log=None): # !!!: 没有必要，因为没有传新东西进去
         super().__init__(params, param_set, cache_dir, cache_lookback, log=log)
         self.cache_mapping = defaultdict(list)
         self._init_containers()
@@ -125,7 +125,7 @@ class F01Lsc(FactorUpdater):
         self.cache_vars = defaultdict(pd.DataFrame)
         self._load_init_cahe()
         self._load_size_threshold()
-        self.min_lookback = 1440 # 保存分钟数据的最大保存长度
+        self.min_lookback = 1440 # 保存分钟数据的最大保存长度 # !!!： 对标参数文件的cache_period
         
         self.persist_vars = defaultdict(pd.DataFrame)
         self.persist_varnames = [f'{vt}_{fn}' for vt in self.volume_types for fn in ['lscb', 'lscs', 'lsc']]
@@ -160,7 +160,7 @@ class F01Lsc(FactorUpdater):
                                     self.cache_lookback, log=self.log)
         self.persist_mgr = MyPersistenceMgr(self.params, self.param_set, self.persist_dir, log=self.log)
     
-    def _load_init_cahe(self):
+    def _load_init_cahe(self): # !!!: 重复开发
         for varname in self.cahe_varnames:
             try:
                 self.cache_vars[varname] = pd.read_parquet(self.cache_dir / f'{varname}.parquet')
@@ -204,7 +204,7 @@ class F01Lsc(FactorUpdater):
                   len(self.immediate_mgr.factor[amount_type]))
             factor_amount_type = self.immediate_mgr.factor[amount_type]
             fetch_length = len(factor_amount_type) # 此时切出来的数据大小
-            self.cache_mgr.cache_mapping[amount_type] = factor_amount_type
+            self.cache_mgr.cache_mapping[amount_type] = factor_amount_type # !!!: 不是修改mapping，而是修改cache，最好用给定接口修改
             
             # 清空fetch过的数据
             print(amount_type, fetch_length, len(self.cache_mgr.cache_mapping[amount_type]),
@@ -214,7 +214,7 @@ class F01Lsc(FactorUpdater):
                   len(self.immediate_mgr.factor[amount_type]))
             
             # 逐symbol计算大小单
-            cache_trade = defaultdict(list)
+            cache_trade = defaultdict(list) # !!!: 此处可以直接在immediate_mgr的容器内操作，不需要重新读取
             for symbol, _, batch_trade in self.cache_mgr.cache_mapping[amount_type]:
                 if len(batch_trade) > 0:
                     for trade in batch_trade:
@@ -278,7 +278,7 @@ class F01Lsc(FactorUpdater):
         sleep(30)
         temp_vars = defaultdict(pd.DataFrame)
         dc_cache_vars = deepcopy(self.cache_vars)
-        for vt in self.volume_types:
+        for vt in self.volume_types: # !!!: 使用cache mgr，不只是保存要切，内存里的也要切时间，否则会过大
             temp_vars[f'{vt}_bs'] = dc_cache_vars[f'{vt}_B_Quantile_S'].iloc[-self.min_lookback:]
             temp_vars[f'{vt}_ss'] = dc_cache_vars[f'{vt}_S_Quantile_S'].iloc[-self.min_lookback:]
             temp_vars[f'{vt}_bl'] = dc_cache_vars[f'{vt}_B_Quantile_L'].iloc[-self.min_lookback:]

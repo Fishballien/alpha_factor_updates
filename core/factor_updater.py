@@ -21,6 +21,7 @@ import sys
 from abc import ABC, abstractmethod
 import signal
 import threading
+from datetime import timedelta
 
 
 from receiver.rcv_fr_lord import LordWithFilter
@@ -28,6 +29,9 @@ from core.database_handler import DatabaseHandler
 from utils.logutils import FishStyleLogger
 from utils.dirutils import load_path_config
 from utils.market import load_binance_data, get_binance_tick_size, usd
+from utils.decorator_utils import timeit
+from utils.timeutils import parse_time_string
+from core.task_scheduler import TaskScheduler
 
 
 # %%
@@ -105,7 +109,8 @@ class FactorUpdater(ABC):
     def stop(self):
         pass
     
-    
+
+# %%
 class FactorUpdaterWithTickSize(FactorUpdater):
     
     def __init__(self):
@@ -121,6 +126,102 @@ class FactorUpdaterWithTickSize(FactorUpdater):
     def reload_tick_size_mapping(self):
         exchange_info = load_binance_data(self.exchange, self.exchange_info_dir)
         self.tick_size_mapping = get_binance_tick_size(exchange_info)
+        
+        
+class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
+    
+    def __init__(self):
+        super().__init__()
+        
+        self._init_param_names()
+        self._init_lookback_mapping()
+        self._init_task_scheduler()
+        self._init_managers()
+        self._add_tasks()
+    
+    @abstractmethod
+    def _init_param_names(self):
+        pass
+        
+    def _init_lookback_mapping(self):
+        cache_period = self.params['record']['cache_period']
+        mmt_wd_list = self.params['factors_related']['final']['mmt_wd']
+        
+        self.cache_lookback = timedelta(seconds=parse_time_string(cache_period))
+        self.mmt_wd_lookback_mapping = {mmt_wd: timedelta(seconds=parse_time_string(mmt_wd)) 
+                                        for mmt_wd in mmt_wd_list}
+    
+    @abstractmethod
+    def _init_managers(self):
+        pass
+    
+    def _init_task_scheduler(self):
+        self.task_scheduler = {name: TaskScheduler(log=self.log) for name in ['calc', 'io']}
+        
+    def _add_tasks(self): # default
+        # 按同时触发时预期的执行顺序排列
+        # 本部分需要集成各类参数与mgr，故暂不做抽象
+        # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
+        
+        ## calc
+        self.task_scheduler['calc'].add_task("1 Minute Record", 'second', 3, self._iv_record)
+        self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 1, 
+                                             self._final_calc_n_send_n_record)
+        
+        ## io
+        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 1, self._save_to_cache)
+        self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 1, self._save_to_final)
+# =============================================================================
+#         ## calc
+#         self.task_scheduler['calc'].add_task("1 Minute Record", 'second', 1, self._iv_record)
+#         self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
+#                                              self._final_calc_n_send_n_record)
+#         
+#         ## io
+#         self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
+#         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
+# =============================================================================
+
+    @timeit
+    def _iv_record(self, ts):
+        for name, iv in list(self.immediate_mgr.factor.items()):
+            self.cache_mgr.add_row(name, iv, ts)
+    
+    def _final_calc_n_send_n_record(self, ts):
+        temp_dict = self._final_calc_n_send(ts)
+        self._final_record(ts, temp_dict)
+        
+    @abstractmethod
+    def _final_calc_n_send(self, ts):
+        pass
+    
+    @timeit
+    def _final_record(self, ts, temp_dict):
+        for pr_name, factor_new_row in temp_dict.items():
+            self.persist_mgr.add_row(pr_name, factor_new_row, ts)
+            
+        self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
+    
+    @timeit
+    def _save_to_cache(self, ts):
+        self.cache_mgr.save(ts)
+    
+    @timeit
+    def _save_to_final(self, ts):
+        self.persist_mgr.save(ts)
+
+    def run(self):
+        self.msg_controller.start() # 占一条线程，用于收取lord消息存队列
+        self.immediate_mgr.start() # 占一条线程，用于即时处理队列消息
+        self.task_scheduler['io'].start() # 占2跳线程：处理任务 + 任务调度
+        self.task_scheduler['calc'].start(use_thread_for_task_runner=False) # 主线程：处理任务 + 辅助线程：任务调度
+        
+    def stop(self):
+        self.running = False
+        self.msg_controller.stop()
+        self.immediate_mgr.stop()
+        for task_name, task_scheduler in self.task_scheduler.items():
+            task_scheduler.stop()
         
 
 # %%

@@ -13,11 +13,20 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 """
 # %% imports
 import numpy as np
+from numba import njit
 
 
 # %% 2 factors
 def calc_imb(a, b):
+    if a + b == 0:
+        return np.nan
     return (a - b) / (a + b)
+
+
+def calc_side_ratio(s, a, b):
+    if a + b == 0:
+        return np.nan
+    return s / (a + b)
 
 
 # %% tick related
@@ -45,3 +54,25 @@ def if_ticktimes(price_arr, tick_size, multiplier):
         if is_integer_price(px, tick_size, multiplier):
             if_ticktimes_arr[i_p] = 1
     return if_ticktimes_arr
+
+
+# %% slope
+@njit("float64(float64[:], float64[:])")
+def compute_slope(x, y):
+    n = len(x)
+    if n != len(y):
+        raise ValueError("The length of x and y must be the same")
+
+    sum_x = np.sum(x)
+    sum_y = np.sum(y)
+    sum_xy = np.sum(x * y)
+    sum_xx = np.sum(x * x)
+    
+    numerator = n * sum_xy - sum_x * sum_y
+    denominator = n * sum_xx - sum_x * sum_x
+    
+    if denominator == 0:
+        return np.nan
+
+    slope = numerator / denominator
+    return slope
