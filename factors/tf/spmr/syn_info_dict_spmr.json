@@ -1,0 +1,302 @@
+{
+    "0": [
+        "amount",
+        "B",
+        "S",
+        "1min",
+        "5min",
+        {
+            "P25OverP75": {
+                "original": [
+                    0
+                ]
+            },
+            "int": {
+                "original": [
+                    0
+                ]
+            },
+            "std": {
+                "original": [
+                    0,
+                    5
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    0
+                ]
+            }
+        }
+    ],
+    "1": [
+        "BA_amount",
+        "order_min",
+        "log_org",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "P25OverP75": {
+                "original": [
+                    0
+                ]
+            },
+            "int": {
+                "pctchg20": [
+                    0
+                ]
+            },
+            "std": {
+                "original": [
+                    0
+                ],
+                "pctchg20": [
+                    0
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    0
+                ],
+                "pctchg20": [
+                    0
+                ]
+            }
+        }
+    ],
+    "2": [
+        "BA_amount",
+        "order_min",
+        "org_org",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "P25OverP75": {
+                "original": [
+                    0,
+                    5
+                ]
+            }
+        }
+    ],
+    "3": [
+        "BA_amount",
+        "order_min",
+        "org_org",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "P25OverP75": {
+                "original": [
+                    0,
+                    5
+                ]
+            },
+            "int": {
+                "original": [
+                    0
+                ]
+            },
+            "std": {
+                "original": [
+                    0
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    0
+                ]
+            }
+        }
+    ],
+    "4": [
+        "BA_amount",
+        "order_min",
+        "log_org",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "int": {
+                "original": [
+                    0
+                ],
+                "pctchg20": [
+                    0
+                ]
+            },
+            "std": {
+                "original": [
+                    0
+                ],
+                "pctchg20": [
+                    0
+                ]
+            },
+            "std2avg": {
+                "pctchg20": [
+                    0
+                ]
+            }
+        }
+    ],
+    "5": [
+        "BA_amount",
+        "order_min",
+        "log_org",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "int": {
+                "original": [
+                    0,
+                    5
+                ],
+                "pctchg20": [
+                    5
+                ]
+            },
+            "std": {
+                "original": [
+                    0,
+                    5
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    0,
+                    5
+                ]
+            }
+        }
+    ],
+    "6": [
+        "BA_amount",
+        "order_min",
+        "log_org",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "int": {
+                "original": [
+                    0
+                ]
+            },
+            "std": {
+                "original": [
+                    5
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    5
+                ]
+            }
+        }
+    ],
+    "7": [
+        "BA_amount",
+        "order_min",
+        "org_dod20",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "int": {
+                "original": [
+                    5
+                ]
+            },
+            "std": {
+                "original": [
+                    0,
+                    5,
+                    20
+                ],
+                "pctchg20": [
+                    0
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    0
+                ]
+            }
+        }
+    ],
+    "8": [
+        "BA_amount",
+        "order_min",
+        "org_dod20",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "int": {
+                "original": [
+                    0
+                ]
+            },
+            "std": {
+                "original": [
+                    0,
+                    5,
+                    20
+                ],
+                "pctchg20": [
+                    0
+                ]
+            },
+            "std2avg": {
+                "original": [
+                    0
+                ]
+            }
+        }
+    ],
+    "9": [
+        "BA_amount",
+        "order_min",
+        "log_dod20",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "std": {
+                "pctchg20": [
+                    0
+                ]
+            }
+        }
+    ],
+    "10": [
+        "BA_amount",
+        "order_min",
+        "log_dod20",
+        "1min",
+        "5min",
+        "0930",
+        "1457",
+        {
+            "std": {
+                "pctchg20": [
+                    0
+                ]
+            }
+        }
+    ]
+}
