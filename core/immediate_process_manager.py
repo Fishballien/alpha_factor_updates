@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import traceback
 from functools import cached_property
+from enum import Enum
 
 
 from utils.decorator_utils import run_by_thread
@@ -244,3 +245,42 @@ class LevelProcessor(Processor):
             return self.prices_pct_by_level[side] > gt
         elif lt is not None:
             return self.prices_pct_by_level[side] <= lt
+        
+        
+# %% size bar
+class Side(Enum):
+    BA = 'B'
+    SA = 'S'
+    A = 'all'
+    
+    
+class Size(Enum):
+    S = 'small'
+    M = 'mid'
+    L = 'large'
+    X = 'x_large'
+    
+
+class SizeDiv(Enum):
+    Quantile = 'quantile'
+    Std = 'std'
+    
+    
+class SizeBarProcessor(Processor):
+
+    def __init__(self, pb_msg, log=None):
+        super().__init__(pb_msg, log=log)
+        self.pb_msg = pb_msg
+        self.timestamp = pb_msg.timestamp # !!!: 未确认，可能需要修改
+        
+    def get(self, side, volume_type, size, size_div):
+        target_v = 0
+        size_list = list(size) if size is not None else [s.name for s in Size]
+        size_div_list = [size_div] if size_div is not None else [sd.name for sd in SizeDiv]
+        for size_div_ in size_div_list:
+            target_cluster = getattr(self.pb_msg, f'size_bar_clusters_{SizeDiv[size_div_].value}')
+            for size_ in size_list:
+                size_bar_name = f'{Side[side].value}_{Size[size_].value}_size'
+                size_bar = getattr(target_cluster, size_bar_name)
+                target_v += getattr(size_bar, volume_type)
+        return target_v
