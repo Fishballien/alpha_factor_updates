@@ -37,5 +37,7 @@ def add_row_to_dataframe_reindex(df, new_data, index):
 
     # 使用 loc 直接添加数据
     df.loc[index, new_data.index] = new_data
+    
+    df = df.sort_index()
 
     return df
