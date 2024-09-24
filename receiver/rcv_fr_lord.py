@@ -20,7 +20,7 @@ import time
 
 
 from receiver.cclob_pb2 import CCBarMsg, CCOrderMsg, CCTradeMsg, CCLevelMsg
-from size_msg_bar_pb2 import CCBarSizeMsg
+from receiver.size_msg_bar_pb2 import CCBarSizeMsg
 from utils.data_parser import deserialize_pb, convert_to_lowercase
 from utils.logutils import FishStyleLogger
 from utils.decorator_utils import run_by_thread

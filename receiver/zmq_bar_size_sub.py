@@ -14,7 +14,7 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 import zmq
 import time
 from google.protobuf.json_format import MessageToJson
-from size_msg_bar_pb2 import CCBarSizeMsg
+from receiver.size_msg_bar_pb2 import CCBarSizeMsg
 
 def main():
     context = zmq.Context()
