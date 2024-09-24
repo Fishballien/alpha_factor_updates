@@ -87,7 +87,7 @@ class DataManager(ABC):
 
 class CacheManager(DataManager):
     
-    def __init__(self, params, param_set, cache_dir, cache_lookback, file_name, log=None):
+    def __init__(self, params, param_set, cache_dir, cache_lookback, file_name=None, log=None):
         super().__init__(params, param_set, log=log)
         self.cache_dir = cache_dir  # 确保 cache_dir 是 Path 对象
         self.cache_lookback = cache_lookback
@@ -119,7 +119,8 @@ class CacheManager(DataManager):
         self._load_or_init_batch(path, self.cache, save_names, type_name='Cache')
 
     def _cut_cache(self, save_name, curr_ts):
-        self.cache[save_name] = self.cache[save_name].loc[curr_ts-self.cache_lookback:]
+        cut_time = pd.Timestamp(curr_ts-self.cache_lookback)
+        self.cache[save_name] = self.cache[save_name].loc[cut_time:]
             
     def save(self, ts):
         if self.file_name is None:
@@ -140,6 +141,10 @@ class CacheManager(DataManager):
     def __getitem__(self, access_name):
         save_name = self.cache_mapping[access_name]
         return self.cache[save_name]
+    
+    def __setitem__(self, access_name, data):
+        save_name = self.cache_mapping[access_name]
+        self.cache[save_name] = data
 
 
 class PersistenceManager(DataManager):
