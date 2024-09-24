@@ -266,6 +266,12 @@ class SizeDiv(Enum):
     Std = 'std'
     
     
+class VolumeType(Enum):
+    volume = 'volume'
+    amount = 'turnover'
+    tradenum = 'tradenum'
+    
+    
 class SizeBarProcessor(Processor):
 
     def __init__(self, pb_msg, log=None):
@@ -273,7 +279,7 @@ class SizeBarProcessor(Processor):
         self.pb_msg = pb_msg
         self.timestamp = pb_msg.timestamp # !!!: 未确认，可能需要修改
         
-    def get(self, side, volume_type, size, size_div):
+    def get(self, side, volume_type, size=None, size_div=None):
         target_v = 0
         size_list = list(size) if size is not None else [s.name for s in Size]
         size_div_list = [size_div] if size_div is not None else [sd.name for sd in SizeDiv]
@@ -282,5 +288,5 @@ class SizeBarProcessor(Processor):
             for size_ in size_list:
                 size_bar_name = f'{Side[side].value}_{Size[size_].value}_size'
                 size_bar = getattr(target_cluster, size_bar_name)
-                target_v += getattr(size_bar, volume_type)
+                target_v += getattr(size_bar, VolumeType[volume_type].value)
         return target_v
