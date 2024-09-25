@@ -66,7 +66,7 @@ class Processor:
     def __init__(self, pb_msg, log):
         header = pb_msg.header
         self.symbol = convert_to_lowercase(header.symbol)
-        self.ts = header.timestamp
+        self.ts = header.timestamp // 1e3
         self.log = log
         
     
@@ -223,6 +223,14 @@ class LevelProcessor(Processor):
         return {'bid': self.get_if_ticktimes_by_side('bid', multiplier),
                 'ask': self.get_if_ticktimes_by_side('ask', multiplier)}
     
+    def get_if_ticktimes_amt_sum(self, multiplier):
+        if_ticktimes = self.get_if_ticktimes(multiplier)
+        return {side: np.sum(self.side_amt[side][if_ticktimes[side]]) for side in ('bid', 'ask')}
+    
+    def get_extract_ticktimes_amt_sum(self, multiplier):
+        if_ticktimes = self.get_if_ticktimes(multiplier)
+        return {side: np.sum(self.side_amt[side][~if_ticktimes[side]]) for side in ('bid', 'ask')}
+    
     def get_n_sigma_thres(self, n):
         return self.all_amt_mean + n * self.all_amt_std
     
@@ -286,7 +294,30 @@ class SizeBarProcessor(Processor):
         for size_div_ in size_div_list:
             target_cluster = getattr(self.pb_msg, f'size_bar_clusters_{SizeDiv[size_div_].value}')
             for size_ in size_list:
-                size_bar_name = f'{Side[side].value}_{Size[size_].value}_size'
-                size_bar = getattr(target_cluster, size_bar_name)
-                target_v += getattr(size_bar, VolumeType[volume_type].value)
+                if side in ['BA', 'SA', 'A']:
+                    v = self._get_specific(side, volume_type, size_, size_div_, target_cluster)
+                elif side == 'NetA':
+                    bv = self._get_specific('BA', volume_type, size_, size_div_, target_cluster)
+                    sv = self._get_specific('SA', volume_type, size_, size_div_, target_cluster)
+                    v = bv - sv
+                target_v += v
         return target_v
+    
+    def _get_specific(self, side, volume_type, size, size_div, target_cluster):
+        size_bar_name = f'{Side[side].value}_{Size[size].value}_size'
+        size_bar = getattr(target_cluster, size_bar_name)
+        target_v = getattr(size_bar, VolumeType[volume_type].value)
+        return target_v
+    
+    
+# %% bar
+class BarProcessor(Processor):
+
+    def __init__(self, pb_msg, log=None):
+        super().__init__(pb_msg, log=log)
+        self.pb_msg = pb_msg
+        self.type = pb_msg.type
+        self._bar = self.pb_msg.bar
+        
+    def __getattr__(self, name):
+        return getattr(self._bar, name)
