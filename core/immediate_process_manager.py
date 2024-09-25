@@ -217,7 +217,7 @@ class LevelProcessor(Processor):
                 'ask': self.get_price_range_idx_by_side('ask', pct, range_type)}
 
     def get_if_ticktimes_by_side(self, side, multiplier):
-        return if_ticktimes(getattr(self, f'{side}_price'), self.tick_size, multiplier)
+        return if_ticktimes(self.price[side], self.tick_size, multiplier)
     
     def get_if_ticktimes(self, multiplier):
         return {'bid': self.get_if_ticktimes_by_side('bid', multiplier),
