@@ -14,7 +14,10 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 # %% imports
 import numpy as np
 import pandas as pd
-from numba import njit
+from numba import njit, prange
+
+
+from utils.datautils import align_both
 
 
 # %% 2 factors
@@ -120,7 +123,7 @@ def calculate_1min_ratio(df, interval_minutes):
     return ratio
 
 
-# %%
+# %% ts
 def ts_avg(df: pd.DataFrame, ts, mmt_wd):
     return df.loc[ts-mmt_wd:].mean(axis=0)
 
@@ -157,3 +160,131 @@ _ts_stats_dict = {
 
 def ts_basic_stat(df: pd.DataFrame, ts, mmt_wd, stats_type='avg'):
     return _ts_stats_dict[stats_type](df, ts, mmt_wd)
+
+
+# %% reg
+def ts_regress_once(dfy: pd.DataFrame, dfx: pd.DataFrame):
+    # 计算列的均值，跳过 NaN 值
+    yAvg = dfy.mean(axis=0, skipna=True)
+    xAvg = dfx.mean(axis=0, skipna=True)
+
+    # 中心化数据
+    xdm = dfx.subtract(xAvg, axis=1)
+    ydm = dfy.subtract(yAvg, axis=1)
+
+    # 计算点积，跳过 NaN 值
+    ydm_dot_xdm = np.nansum(ydm * xdm, axis=0)
+    xdm_dot_xdm = np.nansum(xdm * xdm, axis=0)
+
+    # 计算斜率和截距
+    slope = np.divide(ydm_dot_xdm, xdm_dot_xdm, out=np.zeros_like(ydm_dot_xdm), where=xdm_dot_xdm!=0)
+    intercept = yAvg - slope * xAvg
+
+    # 计算最后一行的残差
+    last_row_y = dfy.iloc[-1].values
+    last_row_x = dfx.iloc[-1].values
+    resid_last = last_row_y - (slope * last_row_x + intercept)
+
+    return {'slope': pd.Series(slope, index=dfx.columns), 
+            'intercept': pd.Series(intercept, index=dfx.columns), 
+            'resid': pd.Series(resid_last, index=dfx.columns)}
+
+
+def safe_ts_regress_once(dfy: pd.DataFrame, dfx: pd.DataFrame):
+    dfy, dfx = align_both(dfy, dfx)
+    if len(dfy) == 0:
+        return None
+    return ts_regress_once(dfy, dfx)
+
+
+@njit("float64[:](float64[:, :], int64)")
+def nanmean_2d(arr, axis):
+    if axis == 0:
+        result = np.zeros(arr.shape[1])
+        for j in prange(arr.shape[1]):
+            total = 0.0
+            count = 0
+            for i in range(arr.shape[0]):
+                if not np.isnan(arr[i, j]):
+                    total += arr[i, j]
+                    count += 1
+            result[j] = total / count if count > 0 else np.nan
+        return result
+    elif axis == 1:
+        result = np.zeros(arr.shape[0])
+        for i in prange(arr.shape[0]):
+            total = 0.0
+            count = 0
+            for j in range(arr.shape[1]):
+                if not np.isnan(arr[i, j]):
+                    total += arr[i, j]
+                    count += 1
+            result[i] = total / count if count > 0 else np.nan
+        return result
+    else:
+        raise ValueError("Axis must be 0 or 1")
+
+
+@njit("float64[:](float64[:, :], int64)")
+def nansum_2d(arr, axis):
+    if axis == 0:
+        result = np.zeros(arr.shape[1])
+        for j in prange(arr.shape[1]):
+            total = 0.0
+            for i in range(arr.shape[0]):
+                if not np.isnan(arr[i, j]):
+                    total += arr[i, j]
+            result[j] = total
+        return result
+    elif axis == 1:
+        result = np.zeros(arr.shape[0])
+        for i in prange(arr.shape[0]):
+            total = 0.0
+            for j in range(arr.shape[1]):
+                if not np.isnan(arr[i, j]):
+                    total += arr[i, j]
+            result[i] = total
+        return result
+    else:
+        raise ValueError("Axis must be 0 or 1")
+        
+        
+@njit("Tuple((float64[:, :], float64[:, :], float64[:, :]))(float64[:, :], float64[:, :], int64, int64)")
+def ts_regress_step_forward_nb(dfy_val: np.ndarray, dfx_val: np.ndarray, window=48, step=1):
+    slope_res = np.full(dfx_val.shape, np.nan, dtype=np.float64)
+    intercept_res = np.full(dfx_val.shape, np.nan, dtype=np.float64)
+    resid_res = np.full(dfx_val.shape, np.nan, dtype=np.float64) # 保存数据的数组
+    
+    ## calculate residues row by row
+    for rk in prange(window, len(dfy_val), step):
+        yView = dfy_val[rk - window: rk, :]
+        xView = dfx_val[rk - window: rk, :]
+
+        yAvg = nanmean_2d(yView, 0)
+        xAvg = nanmean_2d(xView, 0)
+
+        xdm = xView - xAvg
+        ydm = yView - yAvg
+
+        ydm_dot_xdm = nansum_2d(ydm * xdm, 0)
+        xdm_dot_xdm = nansum_2d(xdm * xdm, 0)
+
+        slope = np.divide(ydm_dot_xdm, xdm_dot_xdm)  # slope (beta)
+        intercept = yAvg - slope * xAvg  # intercept
+
+        slope_res[rk, :] = slope
+        intercept_res[rk, :] = intercept
+        resid_res[rk, :] = yView[-1, :] - slope * xView[-1, :] - intercept
+
+    return slope_res, intercept_res, resid_res
+
+
+def safe_ts_regress_step_forward(dfy: pd.DataFrame, dfx: pd.DataFrame, window=48, step=1):
+    dfy, dfx = align_both(dfy, dfx)
+    slope_res, intercept_res, resid_res = ts_regress_step_forward_nb(
+        dfy.values, dfx.values, window=window, step=step)
+    return {
+        'slope': pd.DataFrame(slope_res, index=dfy.index, columns=dfy.columns),
+        'intercept': pd.DataFrame(intercept_res, index=dfy.index, columns=dfy.columns),
+        'resid': pd.DataFrame(resid_res, index=dfy.index, columns=dfy.columns),
+        }
