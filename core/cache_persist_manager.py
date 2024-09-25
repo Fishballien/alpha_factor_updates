@@ -196,5 +196,7 @@ class GeneralPersistenceMgr(PersistenceManager):
     def init_persist_list(self):
         for pr in self.param_set:
             pr_name = pr['name']
+            if 'valid' in pr and not pr['valid']:
+                continue
             self.persist_list.append(pr_name)
         self.persist_list.append('update_time')
