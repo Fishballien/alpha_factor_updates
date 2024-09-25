@@ -23,7 +23,7 @@ from datetime import timedelta
 # %% add sys path
 file_path = Path(__file__).resolve()
 file_dir = file_path.parents[0]
-project_dir = file_path.parents[1]
+project_dir = file_path.parents[2]
 sys.path.append(str(project_dir))
 
 
@@ -64,19 +64,19 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         self.update_time = {}
     
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
+        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
     
     def _process_cc_level_msg(self, pb_msg):
         lp = LevelProcessor(pb_msg)
         
         ## general
-        bid_amt, ask_amt = lp.side_amt
+        side_amt = lp.side_amt
 
         ## small
         for n in self.n_sigma_list:
-            bid_lt_n_idx, ask_lt_n_idx = lp.get_lt_n_sigma_idx(n)
-            bid_lt_amt_sum = np.sum(bid_amt[bid_lt_n_idx])
-            ask_lt_amt_sum = np.sum(ask_amt[ask_lt_n_idx])
+            lt_n_idx = lp.get_lt_n_sigma_idx(n)
+            bid_lt_amt_sum = np.sum(side_amt['bid'][lt_n_idx['bid']])
+            ask_lt_amt_sum = np.sum(side_amt['ask'][lt_n_idx['ask']])
             bid_ratio = calc_side_ratio(bid_lt_amt_sum, bid_lt_amt_sum, ask_lt_amt_sum)
             ask_ratio = calc_side_ratio(ask_lt_amt_sum, bid_lt_amt_sum, ask_lt_amt_sum)
             self.factor[(n, 'bid')][lp.symbol] = bid_ratio

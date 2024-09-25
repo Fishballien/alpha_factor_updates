@@ -22,7 +22,7 @@ from collections import defaultdict
 # %% add sys path
 file_path = Path(__file__).resolve()
 file_dir = file_path.parents[0]
-project_dir = file_path.parents[1]
+project_dir = file_path.parents[2]
 sys.path.append(str(project_dir))
 
 
@@ -67,24 +67,24 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         self.update_time = {}
     
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
+        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
     
     def _process_cc_level_msg(self, pb_msg):
         lp = LevelProcessor(pb_msg)
         
         ## general
-        bid_amt, ask_amt = lp.side_amt
+        side_amt = lp.side_amt
 
         ## rm out large
         for n in self.n_sigma_list:
-            bid_gt_n_idx, ask_gt_n_idx = lp.get_gt_n_sigma_idx(n)
+            gt_n_idx = lp.get_gt_n_sigma_idx(n)
             for pr in self.price_range_list:
                 for rt in self.range_type_list:
-                    bid_range_idx, ask_range_idx = lp.get_price_range_idx(pr, rt)
-                    bid_idx = bid_gt_n_idx | (~bid_range_idx) # ~(lt&in) = gt | ~in
-                    ask_idx = ask_gt_n_idx | (~ask_range_idx)
-                    bid_amt_sum = np.sum(bid_amt[bid_idx])
-                    ask_amt_sum = np.sum(ask_amt[ask_idx])
+                    range_idx = lp.get_price_range_idx(pr, rt)
+                    bid_idx = gt_n_idx['bid'] | (~range_idx['bid']) # ~(lt&in) = gt | ~in
+                    ask_idx = gt_n_idx['ask'] | (~range_idx['ask'])
+                    bid_amt_sum = np.sum(side_amt['bid'][bid_idx])
+                    ask_amt_sum = np.sum(side_amt['ask'][ask_idx])
                     imb = calc_imb(bid_amt_sum, ask_amt_sum)
                     self.factor[(n, pr, rt)][lp.symbol] = imb
 

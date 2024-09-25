@@ -23,7 +23,7 @@ import pandas as pd
 # %% add sys path
 file_path = Path(__file__).resolve()
 file_dir = file_path.parents[0]
-project_dir = file_path.parents[1]
+project_dir = file_path.parents[2]
 sys.path.append(str(project_dir))
 
 

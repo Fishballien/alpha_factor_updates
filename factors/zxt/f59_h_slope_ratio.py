@@ -22,7 +22,7 @@ from collections import defaultdict
 # %% add sys path
 file_path = Path(__file__).resolve()
 file_dir = file_path.parents[0]
-project_dir = file_path.parents[1]
+project_dir = file_path.parents[2]
 sys.path.append(str(project_dir))
 
 
@@ -66,7 +66,7 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         self.update_time = {}
     
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
+        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
     
     def _process_cc_level_msg(self, pb_msg):
         lp = LevelProcessor(pb_msg, log=self.log)
