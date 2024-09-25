@@ -37,6 +37,7 @@ _topic_mapping = {
     "CCOrder": Topic(name="CCOrder", address="tcp://172.16.30.192:1602", handler=CCOrderMsg),
     "CCTrade": Topic(name="CCTrade", address="tcp://172.16.30.192:1602", handler=CCTradeMsg),
     "CCLevel": Topic(name="CCLevel", address="tcp://172.16.30.192:1602", handler=CCLevelMsg),
+    "CCRngLevel": Topic(name="CCRngLevel", address="tcp://172.16.30.192:1602", handler=CCLevelMsg),
     }
 
 
@@ -50,7 +51,7 @@ _address_handler = {
 
 
 _address_topics = {
-    "tcp://172.16.30.192:1602": ["CCBar", "CCOrder", "CCTrade", "CCLevel"],
+    "tcp://172.16.30.192:1602": ["CCBar", "CCOrder", "CCTrade", "CCLevel", "CCRngLevel"],
     "tcp://172.16.30.44:15005": ["CCSizeBar"],
     }
 
@@ -80,7 +81,7 @@ class LordMsgController:
     def _init_topic_related(self):
         self.topics = list(_topic_mapping.keys())
         assert all(topic in self.topics for topic in self.topic_list), (
-            'The subscription topic contains unknown topic: {self.topic_list}')
+            f'The subscription topic contains unknown topic: {self.topic_list}')
         
     def _set_socket(self):
         self.context = zmq.Context()
