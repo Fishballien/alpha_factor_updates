@@ -164,23 +164,13 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
         
         ## calc
-        self.task_scheduler['calc'].add_task("1 Minute Record", 'second', 3, self._iv_record)
-        self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 1, 
+        self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
+        self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
                                              self._final_calc_n_send_n_record)
         
         ## io
-        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 1, self._save_to_cache)
-        self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 1, self._save_to_final)
-# =============================================================================
-#         ## calc
-#         self.task_scheduler['calc'].add_task("1 Minute Record", 'second', 1, self._iv_record)
-#         self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
-#                                              self._final_calc_n_send_n_record)
-#         
-#         ## io
-#         self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
-#         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
-# =============================================================================
+        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 30, self._save_to_cache)
+        self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
 
     @timeit
     def _iv_record(self, ts):
