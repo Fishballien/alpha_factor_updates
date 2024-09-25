@@ -96,6 +96,9 @@ class F56(FactorUpdaterTsFeatureOfSnaps):
     
     name = 'f56_ba_amt_ratio_fsmall_by_dist_in'
     
+    def __init__(self):
+        super().__init__()
+    
     def _init_param_names(self):
         for pr in self.param_set:
             n_sigma = str(pr['n_sigma']).replace('.', '').replace('-', 'minus')
@@ -124,10 +127,15 @@ class F56(FactorUpdaterTsFeatureOfSnaps):
             mmt_wd = pr['mmt_wd']
             pr_name = pr['name']
             factor_per_minute = self.cache_mgr[(n_sigma, price_range, range_type)]
-            mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
-            factor_ma = factor_per_minute.loc[ts-mmt_wd_lookback:].mean(axis=0)
-            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_ma)
-            temp_dict[pr_name] = factor_ma
+            if len(factor_per_minute) == 0:
+                continue
+            if mmt_wd == '0min':
+                factor_final = factor_per_minute.iloc[-1]
+            else:
+                mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
+                factor_final = factor_per_minute.loc[ts-mmt_wd_lookback:].mean(axis=0)
+            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
+            temp_dict[pr_name] = factor_final
         return temp_dict
     
         
