@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 import signal
 import threading
 from datetime import timedelta
+from pympler.asizeof import asizeof
 
 
 from receiver.rcv_fr_lord import LordWithFilter
@@ -167,9 +168,10 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
         self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
                                              self._final_calc_n_send_n_record)
+        self.task_scheduler['calc'].add_task("1 Minute Monitor", 'minute', 1, self._monitor_usage)
         
         ## io
-        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 30, self._save_to_cache)
+        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
 
     @timeit
@@ -191,6 +193,11 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
             self.persist_mgr.add_row(pr_name, factor_new_row, ts)
             
         self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
+        
+    def _monitor_usage(self, ts):
+        self.log.info(f'cache: {convert_size(asizeof(self.cache_mgr.cache))}')
+        self.log.info(f'persist: {convert_size(asizeof(self.persist_mgr.factor_persist))}')
+        self.log.info(f'queue: {convert_size(asizeof(self.msg_controller._queue_map))}')
     
     @timeit
     def _save_to_cache(self, ts):
@@ -212,6 +219,21 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         self.immediate_mgr.stop()
         for task_name, task_scheduler in self.task_scheduler.items():
             task_scheduler.stop()
+            
+            
+# %%
+def convert_size(size_bytes):
+    """
+    将字节数转换为可读的 KB, MB, GB 等形式
+    """
+    if size_bytes == 0:
+        return "0B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0  # 指定单位索引
+    while size_bytes >= 1024 and i < len(size_name) - 1:
+        size_bytes /= 1024.0
+        i += 1
+    return f"{size_bytes:.2f} {size_name[i]}"
         
 
 # %%
