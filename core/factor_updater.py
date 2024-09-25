@@ -12,7 +12,6 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 
 """
 # %% imports
-import os
 from pathlib import Path
 import toml
 import itertools
@@ -20,16 +19,17 @@ import time
 import sys
 from abc import ABC, abstractmethod
 import signal
-import threading
 from datetime import timedelta
 from pympler.asizeof import asizeof
+import warnings
+warnings.simplefilter("ignore")
 
 
 from receiver.rcv_fr_lord import LordWithFilter
 from core.database_handler import DatabaseHandler
 from utils.logutils import FishStyleLogger
 from utils.dirutils import load_path_config
-from utils.market import load_binance_data, get_binance_tick_size, usd
+from utils.market import load_binance_data, get_binance_tick_size
 from utils.decorator_utils import timeit
 from utils.timeutils import parse_time_string
 from core.task_scheduler import TaskScheduler
@@ -195,9 +195,16 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
         
     def _monitor_usage(self, ts):
-        self.log.info(f'cache: {convert_size(asizeof(self.cache_mgr.cache))}')
-        self.log.info(f'persist: {convert_size(asizeof(self.persist_mgr.factor_persist))}')
+        self.log.info(f'cache.container: {convert_size(asizeof(self.cache_mgr.cache))}')
+        self.log.info(f'persist.container: {convert_size(asizeof(self.persist_mgr.factor_persist))}')
         self.log.info(f'queue: {convert_size(asizeof(self.msg_controller._queue_map))}')
+        
+        self.log.info(f'msg: {convert_size(asizeof(self.msg_controller))}')
+        self.log.info(f'immediate: {convert_size(asizeof(self.immediate_mgr))}')
+        self.log.info(f'task: {convert_size(asizeof(self.task_scheduler))}')
+        self.log.info(f'cache: {convert_size(asizeof(self.cache_mgr))}')
+        self.log.info(f'persist: {convert_size(asizeof(self.persist_mgr))}')
+        self.log.info(f'db: {convert_size(asizeof(self.db_handler))}')
     
     @timeit
     def _save_to_cache(self, ts):
