@@ -286,13 +286,13 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
         # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
         
         ## calc
-        self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
-        self.task_scheduler['calc'].add_task("30 Minutes Calc Reg", 'minute', 30, 
-                                             self._calc_reg)
         self.task_scheduler['calc'].add_task("30 Minutes Calc Reg Stats", 'minute', 30, 
                                              self._calc_reg_stats)
         self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
                                              self._final_calc_n_send_n_record)
+        self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
+        self.task_scheduler['calc'].add_task("1 Minutes Calc Reg", 'minute', 1, 
+                                             self._calc_reg)
         
         ## io
         self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
@@ -369,7 +369,7 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
         stats_type_list = final_factors['stats_type']
         mmt_wd_list = final_factors['mmt_wd']
     
-        with ProcessPoolExecutor(max_workers=5) as executor:
+        with ProcessPoolExecutor(max_workers=10) as executor:
             futures = {}
             for volume_type in volume_type_list:
                 for size_div_type in size_div_type_list:
@@ -399,7 +399,7 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
     def _final_calc_n_send(self, ts):
         temp_dict = {}
         
-        with ProcessPoolExecutor(max_workers=5) as executor:
+        with ProcessPoolExecutor(max_workers=10) as executor:
             futures = {}
             for pr in self.param_set:
                 if not pr['valid']:
