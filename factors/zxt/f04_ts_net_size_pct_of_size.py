@@ -15,11 +15,10 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 import sys
 from pathlib import Path
 import numpy as np
-import traceback
 from collections import defaultdict
 from datetime import timedelta
 import pandas as pd
-from collections import Counter
+import time
 
 
 # %% add sys path
@@ -408,9 +407,15 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
     
     @timeit
     def _save_to_cache(self, ts):
+        time.sleep(150)
         self.raw_mgr.save(ts)
         self.reg_mgr.save(ts)
         self.reg_stats_mgr.save(ts)
+        
+    @timeit
+    def _save_to_final(self, ts):
+        time.sleep(250)
+        self.persist_mgr.save(ts)
 
         
 # %%
