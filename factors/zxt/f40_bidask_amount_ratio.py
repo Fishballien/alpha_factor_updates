@@ -14,8 +14,8 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 # %% imports
 import sys
 from pathlib import Path
-import traceback
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 # %% add sys path
@@ -26,9 +26,10 @@ sys.path.append(str(project_dir))
 
 
 # %%
-from core.factor_updater import FactorUpdaterWithTickSize, FactorUpdaterTsFeatureOfSnaps
+from core.factor_updater import FactorUpdaterTsFeatureOfSnapsWithTickSize
 from core.cache_persist_manager import CacheManager, GeneralPersistenceMgr
-from core.immediate_process_manager import ImmediateProcessManager, LevelProcessor
+from core.immediate_process_manager import (ImmediateProcessManager, LevelProcessor, Processor,
+                                            extract_arrays_from_pb_msg)
 from utils.calc import calc_imb
 from utils.decorator_utils import timeit
 
@@ -43,6 +44,29 @@ class MyCacheMgr(CacheManager):
         
         
 # %% immediate process
+def process_snapshot(*args, multiplier_list, tick_size):
+    lp = LevelProcessor(*args)
+    lp.load_tick_size(tick_size)
+    
+    results = {}
+    
+    total_amt = lp.total_amt_sum
+    imb = calc_imb(total_amt['bid'], total_amt['ask'])
+    results['total'] = imb
+    
+    for multiplier in multiplier_list:
+        if_ticktimes_amt = lp.get_if_ticktimes_amt_sum(multiplier)
+        extract_amt = lp.get_extract_ticktimes_amt_sum(multiplier)
+
+        imb_if_ticktimes = calc_imb(if_ticktimes_amt['bid'], if_ticktimes_amt['ask'])
+        imb_extract = calc_imb(extract_amt['bid'], extract_amt['ask'])
+        
+        results[f'ticktimes{int(multiplier)}'] = imb_if_ticktimes
+        results[f'extract_ticktimes{int(multiplier)}'] = imb_extract
+
+    return results
+
+
 class MyImmediateProcessMgr(ImmediateProcessManager):
 
     def load_info(self, param, tick_size_mapping):
@@ -54,43 +78,52 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         self.multiplier_list = cache_factors['multiplier']
     
     def _init_container(self):
+        self.container = {}
         self.factor = defaultdict(dict)
         self.update_time = {}
     
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
+        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg
     
-    # @timeit
     def _process_cc_level_msg(self, pb_msg):
-        lp = LevelProcessor(pb_msg)
-        symbol = lp.symbol
-        try:
-            tick_size = self.tick_size_mapping[symbol]
-        except:
-            self.log.error(f'Tick size of {symbol} does not exist!')
-        lp.load_tick_size(tick_size)
+        p = Processor(pb_msg)
+        self.container[p.symbol] = p
 
-        # total
-        total_amt = lp.total_amt_sum
-        imb = calc_imb(total_amt['bid'], total_amt['ask'])
-        self.factor['total'][lp.symbol] = imb
-        
-        # if ticktimes
-        for multiplier in self.multiplier_list:
-            if_ticktimes_amt = lp.get_if_ticktimes_amt_sum(multiplier)
-            extract_amt = lp.get_extract_ticktimes_amt_sum(multiplier)
+    def get_one_snapshot(self):
+        with ProcessPoolExecutor(max_workers=5) as executor:
+            futures = {}
+            for symbol, p in list(self.container.items()):
+                pb_msg = p.pb_msg
+                ts = p.ts
+                arrays = extract_arrays_from_pb_msg(pb_msg)
+                
+                try:
+                    tick_size = self.tick_size_mapping[symbol]
+                except KeyError:
+                    self.log.error(f'Tick size of {symbol} does not exist!')
+                    continue
+                
+                future = executor.submit(process_snapshot, *arrays, 
+                                         multiplier_list=self.multiplier_list, 
+                                         tick_size=tick_size)
+                futures[future] = (symbol, ts)
 
-            imb_if_ticktimes = calc_imb(if_ticktimes_amt['bid'], if_ticktimes_amt['ask'])
-            imb_extract = calc_imb(extract_amt['bid'], extract_amt['ask'])
-            
-            self.factor[f'ticktimes{int(multiplier)}'][lp.symbol] = imb_if_ticktimes
-            self.factor[f'extract_ticktimes{int(multiplier)}'][lp.symbol] = imb_extract
-        
-        self.update_time[lp.symbol] = lp.ts
+            for future in as_completed(futures):
+                try:
+                    results = future.result()
+                    symbol, ts = futures[future]
+
+                    for key, imb in results.items():
+                        self.factor[key][symbol] = imb
+                    
+                    self.update_time[symbol] = ts
+
+                except Exception as exc:
+                    self.log.error(f"Snapshot processing generated an exception: {exc}")
         
 
 # %%
-class F40(FactorUpdaterTsFeatureOfSnaps, FactorUpdaterWithTickSize):
+class F40(FactorUpdaterTsFeatureOfSnapsWithTickSize):
     
     name = 'f40_bidask_amount_ratio'
     
@@ -113,22 +146,6 @@ class F40(FactorUpdaterTsFeatureOfSnaps, FactorUpdaterWithTickSize):
                                     self.cache_lookback, file_name='cache', log=self.log)
         self.persist_mgr = GeneralPersistenceMgr(self.params, self.param_set, self.persist_dir, log=self.log)
 
-    def _add_tasks(self):
-        # 按同时触发时预期的执行顺序排列
-        # 本部分需要集成各类参数与mgr，故暂不做抽象
-        # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
-        
-        ## calc
-        self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
-        self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
-                                             self._final_calc_n_send_n_record)
-        self.task_scheduler['calc'].add_task("Reload Tick Size Mapping", 'specific_time', ['00:05'], 
-                                     self.reload_tick_size_mapping)
-        
-        ## io
-        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
-        self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
-     
     @timeit
     def _final_calc_n_send(self, ts):
         temp_dict = {}

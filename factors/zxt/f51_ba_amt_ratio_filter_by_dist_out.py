@@ -15,8 +15,8 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 import sys
 from pathlib import Path
 import numpy as np
-import traceback
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 # %% add sys path
@@ -29,7 +29,8 @@ sys.path.append(str(project_dir))
 # %%
 from core.factor_updater import FactorUpdaterTsFeatureOfSnaps
 from core.cache_persist_manager import CacheManager, GeneralPersistenceMgr
-from core.immediate_process_manager import ImmediateProcessManager, LevelProcessor
+from core.immediate_process_manager import (ImmediateProcessManager, LevelProcessor, Processor,
+                                            extract_arrays_from_pb_msg)
 from utils.calc import calc_imb
 from utils.decorator_utils import timeit
 
@@ -51,6 +52,28 @@ class MyCacheMgr(CacheManager):
         
         
 # %% immediate process
+def process_snapshot(*args, n_sigma_list, price_range_list, range_type_list):
+    lp = LevelProcessor(*args)
+    
+    results = {}
+    
+    side_amt = lp.side_amt
+
+    for n in n_sigma_list:
+        lt_n_idx = lp.get_lt_n_sigma_idx(n)
+        for pr in price_range_list:
+            for rt in range_type_list:
+                range_idx = lp.get_price_range_idx(pr, rt)
+                bid_idx = lt_n_idx['bid'] | (~range_idx['bid'])  # ~(gt&out) = lt | ~out
+                ask_idx = lt_n_idx['ask'] | (~range_idx['ask'])
+                bid_amt_sum = np.sum(side_amt['bid'][bid_idx])
+                ask_amt_sum = np.sum(side_amt['ask'][ask_idx])
+                imb = calc_imb(bid_amt_sum, ask_amt_sum)
+                results[(n, pr, rt)] = imb
+
+    return results
+
+
 class MyImmediateProcessMgr(ImmediateProcessManager):
 
     def load_info(self, param):
@@ -63,32 +86,43 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         self.range_type_list = final_factors['range_type']
     
     def _init_container(self):
+        self.container = {}
         self.factor = defaultdict(dict)
         self.update_time = {}
     
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
+        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg
     
     def _process_cc_level_msg(self, pb_msg):
-        lp = LevelProcessor(pb_msg)
-        
-        ## general
-        side_amt = lp.side_amt
+        p = Processor(pb_msg)
+        self.container[p.symbol] = p
 
-        ## rm out large
-        for n in self.n_sigma_list:
-            lt_n_idx = lp.get_lt_n_sigma_idx(n)
-            for pr in self.price_range_list:
-                for rt in self.range_type_list:
-                    range_idx = lp.get_price_range_idx(pr, rt)
-                    bid_idx = lt_n_idx['bid'] | (~range_idx['bid']) # ~(gt&out) = lt | ~out
-                    ask_idx = lt_n_idx['ask'] | (~range_idx['ask'])
-                    bid_amt_sum = np.sum(side_amt['bid'][bid_idx])
-                    ask_amt_sum = np.sum(side_amt['ask'][ask_idx])
-                    imb = calc_imb(bid_amt_sum, ask_amt_sum)
-                    self.factor[(n, pr, rt)][lp.symbol] = imb
+    def get_one_snapshot(self):
+        with ProcessPoolExecutor(max_workers=5) as executor:
+            futures = {}
+            for symbol, p in list(self.container.items()):
+                pb_msg = p.pb_msg
+                ts = p.ts
+                arrays = extract_arrays_from_pb_msg(pb_msg)
 
-        self.update_time[lp.symbol] = lp.ts
+                future = executor.submit(process_snapshot, *arrays, 
+                                         n_sigma_list=self.n_sigma_list, 
+                                         price_range_list=self.price_range_list, 
+                                         range_type_list=self.range_type_list)
+                futures[future] = (symbol, ts)
+
+            for future in as_completed(futures):
+                try:
+                    results = future.result()
+                    symbol, ts = futures[future]
+
+                    for key, imb in results.items():
+                        self.factor[key][symbol] = imb
+
+                    self.update_time[symbol] = ts
+
+                except Exception as exc:
+                    self.log.error(f"Snapshot processing generated an exception: {exc}")
         
 
 # %%

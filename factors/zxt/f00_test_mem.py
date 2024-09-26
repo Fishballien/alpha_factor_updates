@@ -15,8 +15,8 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 import sys
 from pathlib import Path
 import numpy as np
+import traceback
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 # %% add sys path
@@ -29,10 +29,9 @@ sys.path.append(str(project_dir))
 # %%
 from core.factor_updater import FactorUpdaterTsFeatureOfSnaps
 from core.cache_persist_manager import CacheManager, GeneralPersistenceMgr
-from core.immediate_process_manager import (ImmediateProcessManager, LevelProcessor, Processor,
-                                            extract_arrays_from_pb_msg)
+from core.immediate_process_manager import ImmediateProcessManager, LevelProcessor
 from utils.calc import calc_imb
-from utils.decorator_utils import timeit
+from utils.decorator_utils import timeit, gc_collect_after
 
 
 # %% cache & persist
@@ -45,72 +44,48 @@ class MyCacheMgr(CacheManager):
         
         
 # %% immediate process
-def process_snapshot(*args, n_sigma):
-    lp = LevelProcessor(*args)
-    
-    results = []
-    
-    side_amt = lp.side_amt
-    
-    for n in n_sigma:
-        lt_n_idx = lp.get_lt_n_sigma_idx(n)
-        bid_lt_amt_sum = np.sum(side_amt['bid'][lt_n_idx['bid']])
-        ask_lt_amt_sum = np.sum(side_amt['ask'][lt_n_idx['ask']])
-        imb_lt = calc_imb(bid_lt_amt_sum, ask_lt_amt_sum)
-        results.append((n, imb_lt))
-        
-    return results
-
-
 class MyImmediateProcessMgr(ImmediateProcessManager):
 
     def load_info(self, param):
         self.param = param
+        
         factors_related = self.param['factors_related']
         final_factors = factors_related['final']
         self.n_sigma = final_factors['n_sigma']
     
     def _init_container(self):
-        self.container = {}
         self.factor = defaultdict(dict)
         self.update_time = {}
     
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg
+        self.topic_func_mapping['CCLevel'] = self._process_cc_level_msg # !!!: 应该会有新频道名
     
+    # @gc_collect_after
+    @timeit
     def _process_cc_level_msg(self, pb_msg):
-        p = Processor(pb_msg)
-        self.container[p.symbol] = p  # 只接收并存储到 container 中
-    
-    def get_one_snapshot(self):
-        with ProcessPoolExecutor(max_workers=5) as executor:
-            futures = {}
-            for symbol, p in list(self.container.items()):
-                pb_msg = p.pb_msg
-                ts = p.ts
-                arrays = extract_arrays_from_pb_msg(pb_msg)
-
-                future = executor.submit(process_snapshot, *arrays, n_sigma=self.n_sigma)
-                futures[future] = (symbol, ts)
-
-            for future in as_completed(futures):
-                try:
-                    results = future.result()
-                    symbol, ts = futures[future]
-
-                    for n, imb_lt in results:
-                        self.factor[n][symbol] = imb_lt
-                    
-                    self.update_time[symbol] = ts
-
-                except Exception as exc:
-                    self.log.error(f"Snapshot processing generated an exception: {exc}")
-
+        lp = LevelProcessor(pb_msg)
+        pass
+        
+# =============================================================================
+#         ## general
+#         side_amt = lp.side_amt
+# 
+#         ## small
+#         for n in self.n_sigma:
+#             lt_n_idx = lp.get_lt_n_sigma_idx(n)
+#             bid_lt_amt_sum = np.sum(side_amt['bid'][lt_n_idx['bid']])
+#             ask_lt_amt_sum = np.sum(side_amt['ask'][lt_n_idx['ask']])
+#             imb_lt = calc_imb(bid_lt_amt_sum, ask_lt_amt_sum)
+#             self.factor[n][lp.symbol] = imb_lt
+# 
+#         self.update_time[lp.symbol] = lp.ts
+# =============================================================================
+        
 
 # %%
-class F39(FactorUpdaterTsFeatureOfSnaps):
+class F00(FactorUpdaterTsFeatureOfSnaps):
     
-    name = 'f39_small_ba_amt_ratio'
+    name = 'f00_test_mem'
     
     def __init__(self):
         super().__init__()
@@ -130,6 +105,21 @@ class F39(FactorUpdaterTsFeatureOfSnaps):
         self.cache_mgr = MyCacheMgr(self.params, self.param_set, self.cache_dir, 
                                     self.cache_lookback, file_name='cache', log=self.log)
         self.persist_mgr = GeneralPersistenceMgr(self.params, self.param_set, self.persist_dir, log=self.log)
+        
+    def _add_tasks(self): # default
+        # 按同时触发时预期的执行顺序排列
+        # 本部分需要集成各类参数与mgr，故暂不做抽象
+        # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
+        
+        ## calc
+        # self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
+        # self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
+        #                                      self._final_calc_n_send_n_record)
+        self.task_scheduler['calc'].add_task("1 Minute Monitor", 'minute', 1, self._monitor_usage)
+        
+        ## io
+        # self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
+        # self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
     
     @timeit
     def _final_calc_n_send(self, ts):
@@ -146,13 +136,13 @@ class F39(FactorUpdaterTsFeatureOfSnaps):
             else:
                 mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
                 factor_final = factor_per_minute.loc[ts-mmt_wd_lookback:].mean(axis=0)
-            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
+            # self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
             temp_dict[pr_name] = factor_final
         return temp_dict
 
         
 # %%
 if __name__=='__main__':
-    updater = F39()
+    updater = F00()
     updater.run()
         
