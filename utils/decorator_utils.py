@@ -9,6 +9,8 @@ Created on Thu Feb  1 13:27:54 2024
 import time
 import threading
 from decorator import decorator
+import gc
+from functools import wraps
 
 
 # %% decorator
@@ -39,6 +41,16 @@ def timeit(func):
         result = func(*args, **kwargs)  # 调用函数
         end_time = time.time()  # 记录函数结束时间
         print(f"{func.__name__} ran in {end_time - start_time:.4f} seconds")
+        return result
+    return wrapper
+
+
+# %%
+def gc_collect_after(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)  # 调用原始函数
+        gc.collect()  # 在函数执行后调用垃圾回收
         return result
     return wrapper
 
