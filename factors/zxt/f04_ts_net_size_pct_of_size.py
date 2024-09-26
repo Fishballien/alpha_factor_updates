@@ -165,7 +165,7 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         return nxt_nearest_five
 
     def _process_cc_bar_msg(self, pb_msg):
-        bp = BarProcessor(pb_msg, log=self.log)
+        bp = BarProcessor(pb_msg)
         type_ = bp.type
         if type_ != '1m':
             return
