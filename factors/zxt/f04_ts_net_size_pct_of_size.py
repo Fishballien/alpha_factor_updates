@@ -19,6 +19,7 @@ from collections import defaultdict
 from datetime import timedelta
 import pandas as pd
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 # %% add sys path
@@ -201,6 +202,23 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
 
 
 # %%
+def calc_reg_stats_task(volume_type, size_div_type, size_type, reg_type, lookback_wd, mmt_wd, 
+                        stats_type, factor_org, ts, mmt_wd_lookback):
+    factor_stats = ts_basic_stat(factor_org, ts, mmt_wd_lookback, stats_type=stats_type)
+    return factor_stats
+
+
+def final_calc_task(pr_name, factor_org, ts, diff_wd_lookback, diff_type):
+    if diff_type == '0min':
+        factor_final = factor_org.iloc[-1]
+    elif diff_type == 'ma':
+        factor_final = factor_org.loc[ts - diff_wd_lookback:].mean(axis=0)
+    elif diff_type == 'pchg':
+        factor_ma = factor_org.loc[ts - diff_wd_lookback:].mean(axis=0)
+        factor_final = factor_org / factor_ma - 1
+    return factor_final
+
+
 class F04(FactorUpdaterTsFeatureOfSnaps):
     
     name = 'f04_ts_net_size_pct_of_size'
@@ -339,6 +357,7 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
                                 #       self.reg_mgr[(volume_type, size_div_type, size_type, 
                                 #                       reg_type, lookback_wd)])
                                 
+    
     @timeit
     def _calc_reg_stats(self, ts):
         final_factors = self.params['factors_related']['final']
@@ -349,11 +368,13 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
         lookback_wd_list = final_factors['lookback_wd']
         stats_type_list = final_factors['stats_type']
         mmt_wd_list = final_factors['mmt_wd']
-
-        for volume_type in volume_type_list:
-            for size_div_type in size_div_type_list:
-                for size_type in size_type_list:
-                    for lookback_wd in lookback_wd_list:
+    
+        with ProcessPoolExecutor(max_workers=5) as executor:
+            futures = {}
+            for volume_type in volume_type_list:
+                for size_div_type in size_div_type_list:
+                    for size_type in size_type_list:
+                        for lookback_wd in lookback_wd_list:
                             for reg_type in reg_type_list:
                                 factor_org = self.reg_mgr[(volume_type, size_div_type, size_type, 
                                                            reg_type, lookback_wd)]
@@ -362,47 +383,52 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
                                 for mmt_wd in mmt_wd_list:
                                     mmt_wd_lookback = self.mmt_wd_mapping[mmt_wd]
                                     for stats_type in stats_type_list:
-                                        factor_stats = ts_basic_stat(factor_org, ts, mmt_wd_lookback, 
-                                                                     stats_type=stats_type)
-                                        self.reg_stats_mgr.add_row((volume_type, size_div_type, size_type, 
-                                                                    reg_type, lookback_wd, mmt_wd, stats_type), 
-                                                                   factor_stats, ts)
-                                        # print((volume_type, size_div_type, size_type, 
-                                        #                             reg_type, lookback_wd, mmt_wd, stats_type), 
-                                        #       self.reg_stats_mgr[(volume_type, size_div_type, size_type, 
-                                        #                             reg_type, lookback_wd, mmt_wd, stats_type)])
+                                        future = executor.submit(calc_reg_stats_task, volume_type, size_div_type, 
+                                                                 size_type, reg_type, lookback_wd, mmt_wd, 
+                                                                 stats_type, factor_org, ts, mmt_wd_lookback)
+                                        futures[future] = (volume_type, size_div_type, size_type, reg_type, 
+                                                           lookback_wd, mmt_wd, stats_type)
+    
+            for future in as_completed(futures):
+                result = future.result()
+                volume_type, size_div_type, size_type, reg_type, lookback_wd, mmt_wd, stats_type = futures[future]
+                self.reg_stats_mgr.add_row((volume_type, size_div_type, size_type, reg_type, lookback_wd, mmt_wd, stats_type), 
+                                           result, ts)
 
     @timeit
     def _final_calc_n_send(self, ts):
         temp_dict = {}
-        for pr in self.param_set:
-            if not pr['valid']:
-                continue
-            vt = pr['volume_type']
-            sdt = pr['size_div_type']
-            st = pr['size_type']
-            reg_type = pr['reg_type']
-            lookback_wd = pr['lookback_wd']
-            mmt_wd = pr['mmt_wd']
-            stats_type = pr['stats_type']
-            diff_wd = pr['diff_wd']
-            diff_type = pr['diff_type']
-            pr_name = pr['name']
-            factor_org = self.reg_stats_mgr[(vt, sdt, st, 
-                                             reg_type, lookback_wd, mmt_wd, stats_type)]
-            if len(factor_org) == 0:
-                continue
-            diff_wd_lookback = self.diff_wd_mapping[diff_wd]
-            if diff_wd == '0min':
-                factor_final = factor_org.iloc[-1]
-            elif diff_type == 'ma':
-                factor_final = factor_org.loc[ts-diff_wd_lookback:].mean(axis=0)
-            elif diff_type == 'pchg':
-                factor_ma = factor_org.loc[ts-diff_wd_lookback:].mean(axis=0)
-                factor_final = factor_org / factor_ma - 1
-            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
-            temp_dict[pr_name] = factor_final
-            # print(pr_name, factor_final)
+        
+        with ProcessPoolExecutor(max_workers=5) as executor:
+            futures = {}
+            for pr in self.param_set:
+                if not pr['valid']:
+                    continue
+                vt = pr['volume_type']
+                sdt = pr['size_div_type']
+                st = pr['size_type']
+                reg_type = pr['reg_type']
+                lookback_wd = pr['lookback_wd']
+                mmt_wd = pr['mmt_wd']
+                stats_type = pr['stats_type']
+                diff_wd = pr['diff_wd']
+                diff_type = pr['diff_type']
+                pr_name = pr['name']
+                factor_org = self.reg_stats_mgr[(vt, sdt, st, reg_type, lookback_wd, mmt_wd, stats_type)]
+                if len(factor_org) == 0:
+                    continue
+                diff_wd_lookback = self.diff_wd_mapping[diff_wd]
+                
+                future = executor.submit(final_calc_task, pr_name, factor_org, ts, diff_wd_lookback, diff_type)
+                futures[future] = pr_name
+    
+            for future in as_completed(futures):
+                factor_final = future.result()
+                pr_name = futures[future]
+    
+                self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
+                temp_dict[pr_name] = factor_final
+    
         return temp_dict
     
     @timeit
