@@ -14,7 +14,6 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 # %% imports
 from abc import ABC, abstractmethod
 import numpy as np
-import traceback
 from functools import cached_property
 from enum import Enum
 
@@ -52,6 +51,10 @@ class ImmediateProcessManager(ABC):
             pb_msg = self.msg_controller[topic].get()
             self.topic_func_mapping[topic](pb_msg)
             
+    def log_queue_size(self):
+        for topic in self.topic_list:
+            self.log.info(f'{topic} queue size: {self.msg_controller[topic].qsize()}')
+            
     def start(self):
         for topic in self.topic_list:
             self._loop_processing(topic)
@@ -63,49 +66,57 @@ class ImmediateProcessManager(ABC):
 # %% Processor
 class Processor:
     
-    def __init__(self, pb_msg, log):
+    def __init__(self, pb_msg):
+        self.pb_msg = pb_msg
         header = pb_msg.header
         self.symbol = convert_to_lowercase(header.symbol)
         self.ts = header.timestamp // 1e3
-        self.log = log
-        
-    
-# %% level
-class LevelProcessor(Processor):
-    
-    def __init__(self, pb_msg, log=None):
-        super().__init__(pb_msg, log=log)
-        bid_info, ask_info = pb_msg.bid, pb_msg.ask
-        self._get_info_from_level(bid_info, 'bid')
-        self._get_info_from_level(ask_info, 'ask')
 
-    def _get_info_from_level(self, side_info, side_name):
-        side_price_arr = np.array(side_info.price).astype(np.float64)
-        try:
-            assert len(side_price_arr) > 0
-        except AssertionError:
-            self.log.error('Empty {side_name} price arr for {symbol}!')
-            traceback.print_exc()
-            
-        side_volume_arr = np.array(side_info.volume).astype(np.float64)
-        side_level_arr = np.array(side_info.level).astype(np.int64)
+    
+# %% 
+def extract_arrays_from_pb_msg(pb_msg):
+    # 提取bid和ask信息
+    bid_info, ask_info = pb_msg.bid, pb_msg.ask
+    
+    # 转换为NumPy数组
+    bid_price_arr = np.asarray(bid_info.price, dtype=np.float64)
+    bid_volume_arr = np.asarray(bid_info.volume, dtype=np.float64)
+    bid_level_arr = np.asarray(bid_info.level, dtype=np.float64)
+    
+    ask_price_arr = np.asarray(ask_info.price, dtype=np.float64)
+    ask_volume_arr = np.asarray(ask_info.volume, dtype=np.float64)
+    ask_level_arr = np.asarray(ask_info.level, dtype=np.float64)
+    
+    # 返回6个数组
+    return (bid_price_arr, bid_volume_arr, bid_level_arr, 
+            ask_price_arr, ask_volume_arr, ask_level_arr)
+
+
+class LevelProcessor:
+    
+    def __init__(self, bid_price_arr, bid_volume_arr, bid_level_arr, 
+                 ask_price_arr, ask_volume_arr, ask_level_arr):
+        self._bid_price = bid_price_arr
+        self._bid_volume = bid_volume_arr
+        self._bid_level = bid_level_arr
         
-        try:
-            assert (all(np.diff(side_level_arr) > 0) if side_name == 'bid'
-                    else all(np.diff(side_level_arr) < 0))
-        except AssertionError:
-            traceback.print_exc()
+        self._ask_price = ask_price_arr
+        self._ask_volume = ask_volume_arr
+        self._ask_level = ask_level_arr
+
+        self._check_and_set_valid('bid')
+        self._check_and_set_valid('ask')
+    
+    def _check_and_set_valid(self, side):
+        # 减少 get 和 set 的次数，直接访问属性
+        volume_arr = getattr(self, f'_{side}_volume')
+        valid_idx = volume_arr > MINIMUM_SIZE_FILTER
         
-        setattr(self, f'_{side_name}_price', side_price_arr)
-        setattr(self, f'_{side_name}_volume', side_volume_arr)
-        setattr(self, f'_{side_name}_level', side_level_arr)
-        
-        self._check_valid(side_name)
-        
-    def _check_valid(self, side):
-        valid_idx = getattr(self, f'_{side}_volume') > MINIMUM_SIZE_FILTER
-        for data_type in ('price', 'volume', 'level'):
-            setattr(self, f'_{side}_{data_type}', getattr(self, f'_{side}_{data_type}')[valid_idx])
+        if valid_idx.any():  # 只有在有有效数据时才处理
+            for data_type in ('price', 'volume', 'level'):
+                # 直接更新切片后的数组
+                arr = getattr(self, f'_{side}_{data_type}')
+                setattr(self, f'_{side}_{data_type}', arr[valid_idx])
     
     def load_tick_size(self, tick_size):
         self.tick_size = tick_size
@@ -282,8 +293,8 @@ class VolumeType(Enum):
     
 class SizeBarProcessor(Processor):
 
-    def __init__(self, pb_msg, log=None):
-        super().__init__(pb_msg, log=log)
+    def __init__(self, pb_msg):
+        super().__init__(pb_msg)
         self.pb_msg = pb_msg
         self.timestamp = pb_msg.timestamp # !!!: 未确认，可能需要修改
         
@@ -313,8 +324,8 @@ class SizeBarProcessor(Processor):
 # %% bar
 class BarProcessor(Processor):
 
-    def __init__(self, pb_msg, log=None):
-        super().__init__(pb_msg, log=log)
+    def __init__(self, pb_msg):
+        super().__init__(pb_msg)
         self.pb_msg = pb_msg
         self.type = pb_msg.type
         self._bar = self.pb_msg.bar
