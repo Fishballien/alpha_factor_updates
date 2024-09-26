@@ -17,8 +17,18 @@ from queue import Queue
 from collections import defaultdict
 from collections import namedtuple
 import time
+from pathlib import Path
+import sys
 
 
+# %% add sys path
+file_path = Path(__file__).resolve()
+file_dir = file_path.parents[0]
+project_dir = file_path.parents[1]
+sys.path.append(str(project_dir))
+
+
+# %%
 from receiver.cclob_pb2 import CCBarMsg, CCOrderMsg, CCTradeMsg, CCLevelMsg
 from receiver.size_msg_bar_pb2 import CCBarSizeMsg
 from utils.data_parser import deserialize_pb, convert_to_lowercase
@@ -149,7 +159,7 @@ class LordWithFilter(LordMsgController):
         symbol = convert_to_lowercase(header.symbol)
         if symbol.endswith('usdt'):
             self._queue_map[topic].put(pb_msg)
-            
+    
 
 # %%
 if __name__=='__main__':
