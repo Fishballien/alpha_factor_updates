@@ -21,6 +21,7 @@ from abc import ABC, abstractmethod
 import signal
 from datetime import timedelta
 from pympler.asizeof import asizeof
+import tracemalloc
 import warnings
 warnings.simplefilter("ignore")
 
@@ -29,7 +30,7 @@ from receiver.rcv_fr_lord import LordWithFilter
 from core.database_handler import DatabaseHandler
 from utils.logutils import FishStyleLogger
 from utils.dirutils import load_path_config
-from utils.market import load_binance_data, get_binance_tick_size
+from utils.market import load_binance_data, get_binance_tick_size, usd
 from utils.decorator_utils import timeit
 from utils.timeutils import parse_time_string
 from core.task_scheduler import TaskScheduler
@@ -127,7 +128,7 @@ class FactorUpdaterWithTickSize(FactorUpdater):
     def reload_tick_size_mapping(self):
         exchange_info = load_binance_data(self.exchange, self.exchange_info_dir)
         self.tick_size_mapping = get_binance_tick_size(exchange_info)
-        
+            
         
 class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
     
@@ -139,6 +140,7 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         self._init_task_scheduler()
         self._init_managers()
         self._add_tasks()
+        tracemalloc.start()
     
     @abstractmethod
     def _init_param_names(self):
@@ -165,14 +167,20 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
         
         ## calc
+        self.task_scheduler['calc'].add_task("1 Minute Get Snapshot", 'minute', 1, self._get_snapshot)
         self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
         self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
                                              self._final_calc_n_send_n_record)
-        self.task_scheduler['calc'].add_task("1 Minute Monitor", 'minute', 1, self._monitor_usage)
+        self.task_scheduler['calc'].add_task("1 Minute Log Queue Size", 'minute', 1, self._log_queue_size)
+        # self.task_scheduler['calc'].add_task("1 Minute Monitor", 'minute', 1, self._monitor_usage)
         
         ## io
         self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
+        
+    @timeit
+    def _get_snapshot(self, ts):
+        self.immediate_mgr.get_one_snapshot()
 
     @timeit
     def _iv_record(self, ts):
@@ -194,18 +202,30 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
             
         self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
         
+    def _log_queue_size(self, ts):
+        self.immediate_mgr.log_queue_size()
+        
     def _monitor_usage(self, ts):
         self.log.info(f'cache.container: {convert_size(asizeof(self.cache_mgr.cache))}')
         self.log.info(f'persist.container: {convert_size(asizeof(self.persist_mgr.factor_persist))}')
-        self.log.info(f'queue: {convert_size(asizeof(self.msg_controller._queue_map))}')
+        self.log.info(f'queue: {convert_size(asizeof(self.msg_controller._queue_map))}') # 没用，不会读到proto的对象
         
-        self.log.info(f'msg: {convert_size(asizeof(self.msg_controller))}')
-        self.log.info(f'immediate: {convert_size(asizeof(self.immediate_mgr))}')
-        self.log.info(f'task: {convert_size(asizeof(self.task_scheduler))}')
-        self.log.info(f'cache: {convert_size(asizeof(self.cache_mgr))}')
-        self.log.info(f'persist: {convert_size(asizeof(self.persist_mgr))}')
-        self.log.info(f'db: {convert_size(asizeof(self.db_handler))}')
-    
+# =============================================================================
+#         self.log.info(f'msg: {convert_size(asizeof(self.msg_controller))}')
+#         self.log.info(f'immediate: {convert_size(asizeof(self.immediate_mgr))}')
+#         self.log.info(f'task: {convert_size(asizeof(self.task_scheduler))}')
+#         self.log.info(f'cache: {convert_size(asizeof(self.cache_mgr))}')
+#         self.log.info(f'persist: {convert_size(asizeof(self.persist_mgr))}')
+#         self.log.info(f'db: {convert_size(asizeof(self.db_handler))}')
+# =============================================================================
+
+        snapshot = tracemalloc.take_snapshot()
+        top_stats = snapshot.statistics('lineno')
+        
+        print("[ Top 10 memory consuming lines ]")
+        for stat in top_stats[:10]:
+            print(stat)
+
     @timeit
     def _save_to_cache(self, ts):
         self.cache_mgr.save(ts)
@@ -227,6 +247,31 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         for task_name, task_scheduler in self.task_scheduler.items():
             task_scheduler.stop()
             
+            
+class FactorUpdaterTsFeatureOfSnapsWithTickSize(FactorUpdaterTsFeatureOfSnaps,
+                                                FactorUpdaterWithTickSize):
+    
+    def __init__(self):
+        super().__init__()
+    
+    def _add_tasks(self): # default
+        # 按同时触发时预期的执行顺序排列
+        # 本部分需要集成各类参数与mgr，故暂不做抽象
+        # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
+        
+        ## calc
+        self.task_scheduler['calc'].add_task("1 Minute Get Snapshot", 'minute', 1, self._get_snapshot)
+        self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
+        self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
+                                             self._final_calc_n_send_n_record)
+        self.task_scheduler['calc'].add_task("1 Minute Log Queue Size", 'minute', 1, self._log_queue_size)
+        self.task_scheduler['calc'].add_task("Reload Tick Size Mapping", 'specific_time', ['00:05'], 
+                                     self.reload_tick_size_mapping)
+        
+        ## io
+        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
+        self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
+    
             
 # %%
 def convert_size(size_bytes):
