@@ -83,7 +83,7 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         self.topic_func_mapping['CCSizeBar'] = self._process_cc_size_bar_msg # !!!: 应该会有新频道名
     
     def _process_cc_size_bar_msg(self, pb_msg):
-        sbp = SizeBarProcessor(pb_msg, log=self.log)
+        sbp = SizeBarProcessor(pb_msg)
         symbol = sbp.symbol
         ts = sbp.timestamp
         ts_in_dt = pd.to_datetime(ts, unit='ms')
