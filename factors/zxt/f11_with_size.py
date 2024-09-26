@@ -19,6 +19,7 @@ from collections import defaultdict
 from datetime import timedelta
 import pandas as pd
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 # %% add sys path
@@ -112,6 +113,14 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         
 
 # %%
+def final_calc_task(pr_name, factor_org, ts, mmt_wd, mmt_wd_lookback, stats_type):
+    if mmt_wd == '0min':
+        factor_final = factor_org.iloc[-1]
+    else:
+        factor_final = ts_basic_stat(factor_org, ts, mmt_wd_lookback, stats_type=stats_type)
+    return factor_final
+
+
 class F11(FactorUpdaterTsFeatureOfSnaps):
     
     name = 'f11_with_size'
@@ -206,27 +215,40 @@ class F11(FactorUpdaterTsFeatureOfSnaps):
     @timeit
     def _final_calc_n_send(self, ts):
         temp_dict = {}
-        for pr in self.param_set:
-            if not pr['valid']:
-                continue
-            side_type = pr['side_type']
-            volume_type = pr['volume_type']
-            size_div_type = pr['size_div_type']
-            size_type = pr['size_type']
-            denominator_wd = pr['denominator_wd']
-            stats_type = pr['stats_type']
-            mmt_wd = pr['mmt_wd']
-            pr_name = pr['name']
-            factor_org = self.ratio_mgr[(side_type, volume_type, size_div_type, size_type, denominator_wd)]
-            if len(factor_org) == 0:
-                continue
-            if mmt_wd == '0min':
-                factor_final = factor_org.iloc[-1]
-            else:
-                mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
-                factor_final = ts_basic_stat(factor_org, ts, mmt_wd_lookback, stats_type=stats_type)
-            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
-            temp_dict[pr_name] = factor_final
+        
+        with ProcessPoolExecutor(max_workers=20) as executor:
+            futures = {}
+            for pr in self.param_set:
+                if not pr['valid']:
+                    continue
+                side_type = pr['side_type']
+                volume_type = pr['volume_type']
+                size_div_type = pr['size_div_type']
+                size_type = pr['size_type']
+                denominator_wd = pr['denominator_wd']
+                stats_type = pr['stats_type']
+                mmt_wd = pr['mmt_wd']
+                pr_name = pr['name']
+                factor_org = self.ratio_mgr[(side_type, volume_type, size_div_type, size_type, denominator_wd)]
+                
+                if len(factor_org) == 0:
+                    continue
+                
+                mmt_wd_lookback = self.mmt_wd_lookback_mapping.get(mmt_wd, None)
+                future = executor.submit(final_calc_task, pr_name, factor_org, ts, mmt_wd, mmt_wd_lookback, stats_type)
+                futures[future] = pr_name
+    
+            for future in as_completed(futures):
+                try:
+                    factor_final = future.result()
+                    pr_name = futures[future]
+    
+                    self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
+                    temp_dict[pr_name] = factor_final
+    
+                except Exception as exc:
+                    self.log.error(f"Error occurred while processing {futures[future]}: {exc}")
+
         return temp_dict
     
     @timeit
