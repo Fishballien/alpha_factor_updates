@@ -152,10 +152,11 @@ class F41(FactorUpdaterTsFeatureOfSnapsWithTickSize):
 
     def _init_param_names(self):
         for pr in self.param_set:
+            side_type = pr['side_type']
             amount_type = pr['amount_type']
             mmt_wd = pr['mmt_wd']
             suffix = '' if mmt_wd == '0min' else f'_mmt{mmt_wd}_ma'
-            pr['name'] = f'{amount_type}{suffix}'
+            pr['name'] = f'{side_type}_{amount_type}{suffix}'
 
     def _init_managers(self):
         # 即时记录
