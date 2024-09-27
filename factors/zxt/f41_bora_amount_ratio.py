@@ -160,7 +160,7 @@ class F41(FactorUpdaterTsFeatureOfSnapsWithTickSize):
 
     def _init_managers(self):
         # 即时记录
-        self.immediate_mgr = MyImmediateProcessMgr(self.topic_list, self.msg_controller, log=None)
+        self.immediate_mgr = MyImmediateProcessMgr(self.topic_list, self.msg_controller, log=self.log)
         self.immediate_mgr.load_info(self.params, self.tick_size_mapping)
         # 定时记录
         self.cache_mgr = MyCacheMgr(self.params, self.param_set, self.cache_dir, 
