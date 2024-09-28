@@ -118,7 +118,7 @@ class FactorUpdaterWithTickSize(FactorUpdater):
     def __init__(self):
         super().__init__()
         self._init_exchange()
-        self.reload_tick_size_mapping()
+        self.reload_tick_size_mapping(0)
         
     def _init_exchange(self):
         exchange = self.params['exchange']
