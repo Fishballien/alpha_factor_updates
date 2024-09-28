@@ -125,7 +125,7 @@ class FactorUpdaterWithTickSize(FactorUpdater):
         self.exchange_info_dir = Path(self.path_config['exchange_info'])
         self.exchange = globals()[exchange]
         
-    def reload_tick_size_mapping(self):
+    def reload_tick_size_mapping(self, ts):
         exchange_info = load_binance_data(self.exchange, self.exchange_info_dir)
         self.tick_size_mapping = get_binance_tick_size(exchange_info)
             
