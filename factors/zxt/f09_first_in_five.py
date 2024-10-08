@@ -201,7 +201,7 @@ class F09(FactorUpdaterTsFeatureOfSnaps):
             else:
                 mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
                 factor_final = ts_basic_stat(factor_org, ts, mmt_wd_lookback, stats_type=stats_type)
-            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
+            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
             temp_dict[pr_name] = factor_final
         return temp_dict
     

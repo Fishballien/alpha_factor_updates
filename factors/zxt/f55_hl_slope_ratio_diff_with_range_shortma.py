@@ -196,7 +196,7 @@ class F55(FactorUpdaterTsFeatureOfSnapsWithTickSize):
             else:
                 mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
                 factor_final = factor_per_minute.loc[ts-mmt_wd_lookback:].mean(axis=0)
-            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
+            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
             temp_dict[pr_name] = factor_final
         return temp_dict
     

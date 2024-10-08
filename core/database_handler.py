@@ -104,13 +104,14 @@ class DatabaseHandler:
                 connection.close()
     
     @run_by_thread(daemon=False)
-    def batch_insert_data(self, author, factor_category, factor_name, series):
+    def batch_insert_data(self, author, factor_category, factor_name, series, data_ts):
         """
         批量插入数据，自动连接并在插入后关闭连接
         :param author: 共享的 author
         :param factor_category: 共享的 factor_category
         :param factor_name: 共享的 factor_name
         :param series: 一个 Pandas Series，索引为 symbol，值为因子值
+        :param data_ts: 共享的时间戳
         """
         connection = None
         cursor = None
@@ -129,24 +130,25 @@ class DatabaseHandler:
             # 执行批量插入操作
             cursor = connection.cursor()
             insert_query = """
-            INSERT INTO factors_update (author, factor_category, factor_name, symbol, factor_value)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO factors_update (author, factor_category, factor_name, symbol, factor_value, data_ts)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE 
-                factor_value = VALUES(factor_value);
+                factor_value = VALUES(factor_value),
+                data_ts = VALUES(data_ts);
             """
             # 准备批量插入的数据
             data_to_insert = [
-                (author, factor_category, factor_name, symbol, factor_value)
+                (author, factor_category, factor_name, symbol, factor_value, data_ts)
                 for symbol, factor_value in filtered_series.items()
             ]
     
             # 批量执行插入操作
             cursor.executemany(insert_query, data_to_insert)
             connection.commit()
-        
+    
         except pymysql.MySQLError as e:
             self.log.error(f"Error while batch inserting or updating data: {e}")
-        
+    
         finally:
             # 关闭游标和连接
             if cursor:  # 检查 cursor 是否已成功创建

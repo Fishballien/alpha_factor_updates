@@ -426,7 +426,7 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
                 factor_final = future.result()
                 pr_name = futures[future]
     
-                self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final)
+                self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
                 temp_dict[pr_name] = factor_final
     
         return temp_dict
