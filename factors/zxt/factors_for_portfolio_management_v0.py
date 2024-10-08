@@ -75,7 +75,7 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         ts_in_dt = convert_to_previous_3s(ts_in_dt)  # !!!: temp
         
         self.close[ts_in_dt][symbol] = bp.close
-        self.update_time[symbol] = ts_in_dt
+        self.update_time[symbol] = ts
             
     def delete_once(self, ts):
         del_thres = ts - self.del_delay
@@ -192,7 +192,6 @@ class FactorsForPMV0(FactorUpdaterTsFeatureOfSnaps):
         for pr_name, factor_new_row_info in temp_dict.items():
             ts_to_record, factor_new_row = factor_new_row_info
             self.persist_mgr.add_row(pr_name, factor_new_row, ts_to_record)
-            print(self.persist_mgr.factor_persist[pr_name])
             
         self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
         
