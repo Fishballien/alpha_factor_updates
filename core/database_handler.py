@@ -74,7 +74,7 @@ class DatabaseHandler:
         return connection
     
     @run_by_thread(daemon=False)
-    def insert_data(self, author, factor_category, factor_name, symbol, factor_value):
+    def insert_data(self, author, factor_category, factor_name, symbol, factor_value, data_ts):
         """插入单条数据，自动连接并在插入后关闭连接"""
         connection = None
         try:
@@ -82,16 +82,17 @@ class DatabaseHandler:
             connection = self.connect()
             if not connection:
                 return  # 如果没有连接上，不继续执行插入
-
+    
             # 执行插入操作
             cursor = connection.cursor()
             insert_query = """
-            INSERT INTO factors_update (author, factor_category, factor_name, symbol, factor_value)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO factors_update (author, factor_category, factor_name, symbol, factor_value, data_ts)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE 
-                factor_value = VALUES(factor_value);
+                factor_value = VALUES(factor_value),
+                data_ts = VALUES(data_ts);
             """
-            cursor.execute(insert_query, (author, factor_category, factor_name, symbol, factor_value))
+            cursor.execute(insert_query, (author, factor_category, factor_name, symbol, factor_value, data_ts))
             connection.commit()
         
         except pymysql.MySQLError as e:
