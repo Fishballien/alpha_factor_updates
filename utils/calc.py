@@ -288,3 +288,18 @@ def safe_ts_regress_step_forward(dfy: pd.DataFrame, dfx: pd.DataFrame, window=48
         'intercept': pd.DataFrame(intercept_res, index=dfy.index, columns=dfy.columns),
         'resid': pd.DataFrame(resid_res, index=dfy.index, columns=dfy.columns),
         }
+
+
+# %% cut last
+def get_last_valid_values_from_index(df: pd.DataFrame, idx: int) -> pd.Series:
+    # 使用loc从idx开始取所有行
+    recent_array = df.loc[idx:, :].to_numpy()
+    # 从最后一行开始逐列查找第一个非NaN值
+    result = np.full(df.shape[1], np.nan)  # 初始化结果为NaN
+    for col in range(recent_array.shape[1]):
+        valid_mask = ~np.isnan(recent_array[:, col])  # 检查非NaN值
+        if valid_mask.any():
+            # 找到最后一个非NaN值
+            result[col] = recent_array[valid_mask, col][-1]
+    
+    return pd.Series(result, index=df.columns)
