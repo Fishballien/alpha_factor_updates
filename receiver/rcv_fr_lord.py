@@ -138,7 +138,7 @@ class LordMsgController:
             if topic_name.startswith(topic_prefix):
                 pb_msg = deserialize_pb(data, pb_class)
                 if pb_msg:
-                    print(pb_msg)
+                    # print(pb_msg)
                     self._save_to_queue(topic_prefix, pb_msg)
                         
     def stop(self):
