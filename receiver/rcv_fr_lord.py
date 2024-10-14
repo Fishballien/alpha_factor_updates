@@ -43,7 +43,7 @@ Topic = namedtuple('Topic', ['name', 'address', 'handler'])
 
 _topic_mapping = {
     "CCBar": Topic(name="CCBar", address="tcp://172.16.30.192:1602", handler=CCBarMsg),
-    "CCSizeBar": Topic(name="CCSizeBar", address="tcp://172.16.30.44:15005", handler=CCBarSizeMsg),
+    "CCSizeBar": Topic(name="CCSizeBar", address="tcp://172.16.30.192:15005", handler=CCBarSizeMsg),
     "CCOrder": Topic(name="CCOrder", address="tcp://172.16.30.192:1602", handler=CCOrderMsg),
     "CCTrade": Topic(name="CCTrade", address="tcp://172.16.30.192:1602", handler=CCTradeMsg),
     "CCLevel": Topic(name="CCLevel", address="tcp://172.16.30.192:1602", handler=CCLevelMsg),
@@ -56,13 +56,13 @@ _default_address = "tcp://172.16.30.192:1602"
 
 _address_handler = {
     "tcp://172.16.30.192:1602": handler_msg_fr_lord,
-    "tcp://172.16.30.44:15005": handler_msg_fr_cluster,
+    "tcp://172.16.30.192:15005": handler_msg_fr_cluster,
     }
 
 
 _address_topics = {
     "tcp://172.16.30.192:1602": ["CCBar", "CCOrder", "CCTrade", "CCLevel", "CCRngLevel"],
-    "tcp://172.16.30.44:15005": ["CCSizeBar"],
+    "tcp://172.16.30.192:15005": ["CCSizeBar"],
     }
 
 
@@ -138,6 +138,7 @@ class LordMsgController:
             if topic_name.startswith(topic_prefix):
                 pb_msg = deserialize_pb(data, pb_class)
                 if pb_msg:
+                    print(pb_msg)
                     self._save_to_queue(topic_prefix, pb_msg)
                         
     def stop(self):
@@ -164,7 +165,7 @@ class LordWithFilter(LordMsgController):
 # %%
 if __name__=='__main__':
     topic_list = ['CCLevel', "CCSizeBar"]
-    address = ["tcp://172.16.30.192:1602", "tcp://172.16.30.44:15005"]
+    address = ["tcp://172.16.30.192:1602", "tcp://172.16.30.192:15005"]
     lord = LordMsgController(topic_list, address)
     lord.start()
     time.sleep(120)
