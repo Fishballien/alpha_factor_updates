@@ -153,19 +153,26 @@ class F09(FactorUpdaterTsFeatureOfSnaps):
 
     @timeit
     def _iv_record(self, ts):
-        for name, iv_by_ts in list(self.immediate_mgr.factor.items()):
-            iv_by_ts = iv_by_ts.copy()
-            for ts_of_data, ts_iv in list(iv_by_ts.items()):
-                ts_iv_cut = ts_iv.copy()
-                self.raw_mgr.add_row(name, ts_iv_cut, ts_of_data)
-                for symbol in ts_iv_cut:
-                    del self.immediate_mgr.factor[name][ts_of_data][symbol]
-            # 删除倒数5行
-            del_thres = self.raw_mgr[name].index[-min(len(self.raw_mgr[name]), 5)]
-            for ts_of_data in iv_by_ts:
-                if ts_of_data < del_thres:
-                    assert len(self.immediate_mgr.factor[name][ts_of_data]) == 0
-                    del self.immediate_mgr.factor[name][ts_of_data]
+        try:
+            for name, iv_by_ts in list(self.immediate_mgr.factor.items()):
+                iv_by_ts = iv_by_ts.copy()
+                for ts_of_data, ts_iv in list(iv_by_ts.items()):
+                    ts_iv_cut = ts_iv.copy()
+                    self.raw_mgr.add_row(name, ts_iv_cut, ts_of_data)
+                    for symbol in ts_iv_cut:
+                        del self.immediate_mgr.factor[name][ts_of_data][symbol]
+                # 删除倒数5行
+                del_thres = self.raw_mgr[name].index[-min(len(self.raw_mgr[name]), 5)]
+                for ts_of_data in iv_by_ts:
+                    if ts_of_data < del_thres:
+                        try:
+                            assert len(self.immediate_mgr.factor[name][ts_of_data]) == 0
+                            del self.immediate_mgr.factor[name][ts_of_data]
+                        except:
+                            self.log.warning(f'发现早于5分钟前的记录未处理：{self.immediate_mgr.factor[name][ts_of_data]}')
+        except:
+            self.log.exception('iv_record error')
+            self.raise_signal()
                     
     @timeit
     def _calc_ratio(self, ts):
