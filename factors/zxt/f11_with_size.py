@@ -189,7 +189,9 @@ class F11(FactorUpdaterTsFeatureOfSnaps):
                 for symbol in ts_iv_cut:
                     del self.immediate_mgr.factor[name][ts_of_data][symbol]
             # 删除倒数5行
-            del_thres = self.raw_mgr[name].index[-min(len(self.raw_mgr[name]), 5)]
+            if len(self.raw_mgr[name]) <= 5:
+                continue
+            del_thres = self.raw_mgr[name].index[-5]
             for ts_of_data in iv_by_ts:
                 if ts_of_data < del_thres:
                     assert len(self.immediate_mgr.factor[name][ts_of_data]) == 0
