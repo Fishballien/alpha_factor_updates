@@ -26,6 +26,10 @@ from utils.datautils import add_row_to_dataframe_reindex
 
 
 # %%
+saving_event = threading.Event()
+
+
+# %%
 class DataManager(ABC):
     
     def __init__(self, params, param_set, log=None):
@@ -34,6 +38,7 @@ class DataManager(ABC):
         self.log = log
         
         self._init_locks()
+        self.is_saving = False
         
     def _init_locks(self):
         self.locks = defaultdict(threading.Lock)
@@ -50,6 +55,8 @@ class DataManager(ABC):
                 self.log.warning(f'{type_name} exists but unreadable: {path}. Error: {e}')
 
     def _save_to_h5_batch(self, path, container):
+        saving_event.set()
+
         with h5py.File(path, 'w') as f:
             for key, data in list(container.items()):
                 dset = f.create_dataset(key, data=data.to_numpy(dtype=np.float64))
@@ -61,6 +68,8 @@ class DataManager(ABC):
                 f[key].attrs['columns'] = [col.encode('utf-8') for col in data.columns.astype(str)]
         if self.log:
             self.log.success(f'Successfully saved data to {path}')
+            
+        saving_event.clear()
 
     def _load_from_h5_batch(self, path, container, keys):
         loaded_info = {}

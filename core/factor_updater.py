@@ -16,12 +16,13 @@ from pathlib import Path
 import toml
 import itertools
 import time
-import sys
+import os
 from abc import ABC, abstractmethod
 import signal
 from datetime import timedelta
 from pympler.asizeof import asizeof
 import tracemalloc
+import threading
 import warnings
 warnings.simplefilter("ignore")
 
@@ -34,6 +35,7 @@ from utils.market import load_binance_data, get_binance_tick_size, usd
 from utils.decorator_utils import timeit
 from utils.timeutils import parse_time_string
 from core.task_scheduler import TaskScheduler
+from core.cache_persist_manager import saving_event
 
 
 # %%
@@ -48,6 +50,7 @@ class FactorUpdater(ABC):
         self._init_database_handler()
         self._init_param_set()
         self._set_up_signal_handler()
+        self.saving_event = saving_event
         self.running = True
         
     def _load_path_config(self):
@@ -100,8 +103,14 @@ class FactorUpdater(ABC):
     def _signal_handler(self, sig, frame):
         self.log.warning("收到终止信号，正在清理资源...")
         self.stop()
-        time.sleep(15) # HINT: 设置一定的等待时间，等待task schedule执行完毕后终止
-        sys.exit(0)
+        if self.saving_event.is_set():
+            self.log.warning("检测到保存操作正在进行，等待保存完成...")
+            self.saving_event.wait()  # 等待保存完成
+        else:
+            self.log.info("没有保存操作正在进行")
+        time.sleep(15)
+        self.log.info("清理完成，程序安全退出")
+        os._exit(0)
         
     @abstractmethod
     def run(self):
@@ -110,6 +119,9 @@ class FactorUpdater(ABC):
     @abstractmethod
     def stop(self):
         pass
+    
+    def raise_signal(self):
+        signal.raise_signal(signal.SIGTERM)
     
 
 # %%
