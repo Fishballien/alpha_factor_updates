@@ -72,7 +72,12 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         symbol = bp.symbol
         ts = bp.ts
         ts_in_dt = pd.to_datetime(ts, unit='ms')
-        ts_in_dt = convert_to_previous_3s(ts_in_dt)  # !!!: temp
+        # ts_in_dt = convert_to_previous_3s(ts_in_dt)  # !!!: temp
+        
+        now = datetime.utcnow()
+        diff = now - ts_in_dt
+        if diff > timedelta(minutes=1):
+            print(symbol, diff, now, ts_in_dt)
         
         self.close[ts_in_dt][symbol] = bp.close
         self.update_time[symbol] = ts
