@@ -183,7 +183,8 @@ class FactorsForPMV0(FactorUpdaterTsFeatureOfSnaps):
                 ts_to_record = ts
             else:
                 twap_wd_real = self.twap_wd_mapping[twap_wd]
-                if self.pre_ts is not None and self.pre_ts + twap_wd_real <= ts: # TODO: 当前仅支持twap时间小于计算时间间隔，若有进一步需求再拓展
+                self.pre_ts = self.pre_ts or ts - timedelta(minutes=30)
+                if self.pre_ts + twap_wd_real <= ts: # TODO: 当前仅支持twap时间小于计算时间间隔，若有进一步需求再拓展
                     factor_final = close_org.loc[self.pre_ts:(self.pre_ts+twap_wd_real)].mean(axis=0)
                     ts_to_record = self.pre_ts
                     
