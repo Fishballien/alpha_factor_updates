@@ -148,7 +148,7 @@ class FactorsForPMV0(FactorUpdaterTsFeatureOfSnaps):
                                              self._delete_once)
         
         ## io
-        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
+        self.task_scheduler['io'].add_task("1 Minutes Save to Cache", 'minute', 1, self._save_to_cache)
         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
 
     @timeit
