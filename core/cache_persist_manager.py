@@ -56,37 +56,63 @@ class DataManager(ABC):
 
     def _save_to_h5_batch(self, path, container):
         saving_event.set()
-
-        with h5py.File(path, 'w') as f:
-            for key, data in list(container.items()):
-                dset = f.create_dataset(key, data=data.to_numpy(dtype=np.float64))
-                # 如果 index 是时间戳，转换为字符串保存
-                if isinstance(data.index, pd.DatetimeIndex):
-                    f[key].attrs['index'] = [i.isoformat() for i in data.index]
-                else:
-                    f[key].attrs['index'] = [i.encode('utf-8') if isinstance(i, str) else i for i in data.index]
-                f[key].attrs['columns'] = [col.encode('utf-8') for col in data.columns.astype(str)]
+        
+        with pd.HDFStore(path, 'a') as store:
+            for key, data in container.items():
+                store.put(key, data)
         if self.log:
             self.log.success(f'Successfully saved data to {path}')
+
+# =============================================================================
+#         with h5py.File(path, 'a') as f:
+#             for key, data in list(container.items()):
+#                 if key in f:
+#                     del f[key]
+#                 else:
+#                     self.log.info(f"Add: {key}")
+#                 dset = f.create_dataset(key, data=data.to_numpy(dtype=np.float64))
+#                 # 如果 index 是时间戳，转换为字符串保存
+#                 if isinstance(data.index, pd.DatetimeIndex):
+#                     f[key].attrs['index'] = [i.isoformat() for i in data.index]
+#                 else:
+#                     f[key].attrs['index'] = [i.encode('utf-8') if isinstance(i, str) else i for i in data.index]
+#                 f[key].attrs['columns'] = [col.encode('utf-8') for col in data.columns.astype(str)]
+#         if self.log:
+#             self.log.success(f'Successfully saved data to {path}')
+# =============================================================================
             
         saving_event.clear()
 
     def _load_from_h5_batch(self, path, container, keys):
+        
         loaded_info = {}
-        with h5py.File(path, 'r') as f:
-            for key in keys:
-                if key in f:
-                    data = np.array(f[key])
-                    # 判断 index 是否为时间戳字符串格式
-                    index = [
-                        pd.Timestamp(i) if isinstance(i, str) and "T" in i else i.decode('utf-8') if isinstance(i, bytes) else i
-                        for i in f[key].attrs['index']
-                    ]
-                    columns = [
-                        col.decode('utf-8') if isinstance(col, bytes) else col for col in f[key].attrs['columns']
-                    ]
-                    container[key] = pd.DataFrame(data, index=index, columns=columns)
-                    loaded_info[key] = data.shape
+        
+        try:
+            with pd.HDFStore(path, 'r') as store:
+                if keys is None or len(keys) == 0:
+                    keys = store.keys()
+                for key in keys:
+                    if key in store:
+                        data = store[key]
+                        container[key] = data
+                        loaded_info[key] = data.shape
+        except:
+            with h5py.File(path, 'r') as f:
+                if keys is None or len(keys) == 0:
+                    keys = list(f.keys())
+                for key in keys:
+                    if key in f:
+                        data = np.array(f[key])
+                        # 判断 index 是否为时间戳字符串格式
+                        index = [
+                            pd.Timestamp(i) if isinstance(i, str) and "T" in i else i.decode('utf-8') if isinstance(i, bytes) else i
+                            for i in f[key].attrs['index']
+                        ]
+                        columns = [
+                            col.decode('utf-8') if isinstance(col, bytes) else col for col in f[key].attrs['columns']
+                        ]
+                        container[key] = pd.DataFrame(data, index=index, columns=columns)
+                        loaded_info[key] = data.shape
         if self.log:
             self.log.success(f'Loaded details: {loaded_info}')
 
