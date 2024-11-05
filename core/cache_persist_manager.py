@@ -90,7 +90,9 @@ class DataManager(ABC):
         try:
             with pd.HDFStore(path, 'r') as store:
                 if keys is None or len(keys) == 0:
+                    self.log.warning(f'Empty Cache Mapping! Auto load keys as Cache Mapping: {keys}')
                     keys = store.keys()
+                    self.cache_mapping = dict(zip(keys, keys))
                 for key in keys:
                     if key in store:
                         data = store[key]
@@ -99,7 +101,9 @@ class DataManager(ABC):
         except:
             with h5py.File(path, 'r') as f:
                 if keys is None or len(keys) == 0:
+                    self.log.warning(f'Empty Cache Mapping! Auto load keys as Cache Mapping: {keys}')
                     keys = list(f.keys())
+                    self.cache_mapping = dict(zip(keys, keys))
                 for key in keys:
                     if key in f:
                         data = np.array(f[key])
