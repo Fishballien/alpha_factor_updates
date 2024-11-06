@@ -91,7 +91,7 @@ class DataManager(ABC):
             with pd.HDFStore(path, 'r') as store:
                 if keys is None or len(keys) == 0:
                     self.log.warning(f'Empty Cache Mapping! Auto load keys as Cache Mapping: {keys}')
-                    keys = store.keys()
+                    keys = [k[1:] for k in store.keys()]
                     self.cache_mapping = dict(zip(keys, keys))
                 for key in keys:
                     if key in store:
@@ -109,7 +109,8 @@ class DataManager(ABC):
                         data = np.array(f[key])
                         # 判断 index 是否为时间戳字符串格式
                         index = [
-                            pd.Timestamp(i) if isinstance(i, str) and "T" in i else i.decode('utf-8') if isinstance(i, bytes) else i
+                            pd.Timestamp(i) if isinstance(i, str) and "T" in i else i.decode('utf-8') 
+                            if isinstance(i, bytes) else i
                             for i in f[key].attrs['index']
                         ]
                         columns = [
