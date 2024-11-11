@@ -58,7 +58,7 @@ class DataManager(ABC):
         saving_event.set()
         
         with pd.HDFStore(path, 'a') as store:
-            for key, data in container.items():
+            for key, data in list(container.items()):
                 store.put(key, data)
         if self.log:
             self.log.success(f'Successfully saved data to {path}')
