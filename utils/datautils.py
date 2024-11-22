@@ -58,6 +58,11 @@ def align_index(df_1, df_2):
     return df_1.loc[inner_index, :], df_2.loc[inner_index, :]
 
 
+def align_series_index(df_1, df_2):
+    inner_index = df_1.index.intersection(df_2.index)
+    return df_1.loc[inner_index,], df_2.loc[inner_index]
+
+
 # %% dict
 def is_empty_dict(d):
     # 如果当前字典为空

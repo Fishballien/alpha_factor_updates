@@ -264,6 +264,45 @@ class LevelProcessor:
             return self.prices_pct_by_level[side] > gt
         elif lt is not None:
             return self.prices_pct_by_level[side] <= lt
+    
+    
+class LevelProcessorForChatgptV0(LevelProcessor):
+    
+    @cached_property
+    def lob_all(self, MIN_VOLUME = 1e-6):
+        price_sorted = {side: self.price[side][::-1] if side == 'bid' else self.price[side]
+                        for side in self.price}
+        volume_sorted = {side: self.volume[side][::-1] if side == 'bid' else self.volume[side]
+                        for side in self.volume}
+        valid_idx = {side: volume_sorted[side] > MIN_VOLUME for side in volume_sorted}
+        lob_all = {side: np.column_stack((price_sorted[side][valid_idx[side]], 
+                                          volume_sorted[side][valid_idx[side]]))
+                   for side in valid_idx}
+        return lob_all
+    
+    def lob_within_level(self, max_level):
+        return {side: self._lob_within_level_side(side, max_level) for side in self.lob_all}
+    
+    def _lob_within_level_side(self, side, max_level): # !!!: 先不做padding
+        lob_all_side = self.lob_all[side]
+        level_limit = min(len(lob_all_side), max_level)
+        lob_within_level = lob_all_side[:level_limit]
+        return lob_within_level
+    
+    def lob_within_pct(self, pct):
+        pct_price = self.get_pct_price(pct)
+        return {side: self._lob_within_pct_price_side(side, pct_price[side]) for side in self.lob_all}
+    
+    def get_pct_price(self, pct):
+        return {
+            'bid': (1 - pct) * self.mid_price,
+            'ask': (1 + pct) * self.mid_price,
+            }
+    
+    def _lob_within_pct_price_side(self, side, pct_price): # !!!: 先不做padding
+        lob_all_side = self.lob_all[side]
+        mul = 1 if side == 'bid' else -1
+        return lob_all_side[lob_all_side[:, 0]*mul >= pct_price*mul]
         
         
 # %% size bar

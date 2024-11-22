@@ -45,6 +45,7 @@ class FactorUpdater(ABC):
         self._load_path_config()
         self._init_dir()
         self._load_param()
+        self._load_param_info()
         self._init_log()
         self._init_msg_controller()
         self._init_database_handler()
@@ -72,6 +73,7 @@ class FactorUpdater(ABC):
     def _load_param(self):
         self.params = toml.load(self.param_dir / f'{self.name}.toml')
         
+    def _load_param_info(self):
         self.address = self.params['address']
         self.topic_list = self.params['topic']
         self.mysql_name = self.params['mysql_name']
@@ -81,9 +83,8 @@ class FactorUpdater(ABC):
     def _init_param_set(self):
         factor_related = self.params.get('factors_related', {})
         if factor_related:
-            final_param = factor_related['final']
-            if final_param:
-                self.param_set = para_allocation(final_param)
+            final_param = factor_related.get('final')
+            self.param_set = para_allocation(final_param) if final_param else {}
 
     def _init_log(self):
         self.log = FishStyleLogger()
@@ -283,6 +284,21 @@ class FactorUpdaterTsFeatureOfSnapsWithTickSize(FactorUpdaterTsFeatureOfSnaps,
         ## io
         self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
+        
+# =============================================================================
+#         ## calc
+#         self.task_scheduler['calc'].add_task("1 Minute Get Snapshot", 'second', 5, self._get_snapshot)
+#         self.task_scheduler['calc'].add_task("1 Minute Record", 'second', 5, self._iv_record)
+#         self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
+#                                              self._final_calc_n_send_n_record)
+#         self.task_scheduler['calc'].add_task("1 Minute Log Queue Size", 'minute', 1, self._log_queue_size)
+#         self.task_scheduler['calc'].add_task("Reload Tick Size Mapping", 'specific_time', ['00:05'], 
+#                                      self.reload_tick_size_mapping)
+#         
+#         ## io
+#         self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
+#         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
+# =============================================================================
     
             
 # %%
