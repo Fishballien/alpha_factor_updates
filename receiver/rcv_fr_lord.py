@@ -19,6 +19,7 @@ from collections import namedtuple
 import time
 from pathlib import Path
 import sys
+import threading
 
 
 # %% add sys path
@@ -38,31 +39,44 @@ from receiver.msg_handler import handler_msg_fr_lord, handler_msg_fr_cluster
 
 
 # %%
+_address_mapping = {
+    # 'lord_xyw': "tcp://172.16.30.97:15000", #"tcp://10.61.10.21:1602",
+    'lord_xyw': "tcp://127.0.0.1:1602",
+    # 'lord_xyw': "tcp://172.16.30.192:1602",
+    'lord_ysy': "tcp://10.61.10.21:15005",
+    }
+
+
 Topic = namedtuple('Topic', ['name', 'address', 'handler'])
 
 
 _topic_mapping = {
-    "CCBar": Topic(name="CCBar", address="tcp://172.16.30.192:1602", handler=CCBarMsg),
-    "CCSizeBar": Topic(name="CCSizeBar", address="tcp://172.16.30.192:15005", handler=CCBarSizeMsg),
-    "CCOrder": Topic(name="CCOrder", address="tcp://172.16.30.192:1602", handler=CCOrderMsg),
-    "CCTrade": Topic(name="CCTrade", address="tcp://172.16.30.192:1602", handler=CCTradeMsg),
-    "CCLevel": Topic(name="CCLevel", address="tcp://172.16.30.192:1602", handler=CCLevelMsg),
-    "CCRngLevel": Topic(name="CCRngLevel", address="tcp://172.16.30.192:1602", handler=CCLevelMsg),
+    "CCBar": Topic(name="CCBar", address=_address_mapping['lord_xyw'], handler=CCBarMsg),
+    "CCSizeBar": Topic(name="CCSizeBar", address=_address_mapping['lord_ysy'], handler=CCBarSizeMsg),
+    "CCOrder": Topic(name="CCOrder", address=_address_mapping['lord_xyw'], handler=CCOrderMsg),
+    "CCTrade": Topic(name="CCTrade", address=_address_mapping['lord_xyw'], handler=CCTradeMsg),
+    "CCLevel": Topic(name="CCLevel", address=_address_mapping['lord_xyw'], handler=CCLevelMsg),
+    "CCLevel1": Topic(name="CCLevel1", address=_address_mapping['lord_xyw'], handler=CCLevelMsg),
+    "CCRngLevel1": Topic(name="CCRngLevel1", address=_address_mapping['lord_xyw'], handler=CCLevelMsg),
+    "CCRngLevel2": Topic(name="CCRngLevel2", address=_address_mapping['lord_xyw'], handler=CCLevelMsg),
+    "CCRngLevel3": Topic(name="CCRngLevel3", address=_address_mapping['lord_xyw'], handler=CCLevelMsg),
+    "CCRngLevel4": Topic(name="CCRngLevel4", address=_address_mapping['lord_xyw'], handler=CCLevelMsg),
     }
 
 
-_default_address = "tcp://172.16.30.192:1602"
+_default_address = _address_mapping['lord_xyw']
 
 
 _address_handler = {
-    "tcp://172.16.30.192:1602": handler_msg_fr_lord,
-    "tcp://172.16.30.192:15005": handler_msg_fr_cluster,
+    _address_mapping['lord_xyw']: handler_msg_fr_lord,
+    _address_mapping['lord_ysy']: handler_msg_fr_cluster,
     }
 
 
 _address_topics = {
-    "tcp://172.16.30.192:1602": ["CCBar", "CCOrder", "CCTrade", "CCLevel", "CCRngLevel"],
-    "tcp://172.16.30.192:15005": ["CCSizeBar"],
+    _address_mapping['lord_xyw']: ["CCBar", "CCOrder", "CCTrade", "CCLevel", "CCLevel1", "CCRngLevel1", "CCRngLevel2", 
+                                   "CCRngLevel3", "CCRngLevel4"],
+    _address_mapping['lord_ysy']: ["CCSizeBar"],
     }
 
 
@@ -139,6 +153,7 @@ class LordMsgController:
                 pb_msg = deserialize_pb(data, pb_class)
                 if pb_msg:
                     # print(pb_msg)
+                    # breakpoint()
                     self._save_to_queue(topic_prefix, pb_msg)
                         
     def stop(self):
@@ -160,12 +175,35 @@ class LordWithFilter(LordMsgController):
         symbol = convert_to_lowercase(header.symbol)
         if symbol.endswith('usdt'):
             self._queue_map[topic].put(pb_msg)
+            
+
+# %%
+import pandas as pd
+from utils.timeutils import round_up_timestamp
+
+
+class LordSaveToDict(LordMsgController):
     
+    def _init_queue(self):
+        self._queue_map = defaultdict(lambda: defaultdict(dict))
+        self.lock = threading.Lock()
+    
+    def _save_to_queue(self, topic, pb_msg):
+        header = pb_msg.header
+        symbol = convert_to_lowercase(header.symbol)
+        ts_org = header.timestamp // 1e3
+        ts = round_up_timestamp(ts_org)
+        ts_in_dt = pd.to_datetime(ts, unit='ms')
+        self.newest_ts = ts_in_dt if ts_in_dt > self.newest_ts else self.newest_ts
+        if symbol.endswith('usdt'):
+            # with self.lock:
+            self._queue_map[topic][ts_in_dt][symbol] = pb_msg
+
 
 # %%
 if __name__=='__main__':
-    topic_list = ['CCLevel', "CCSizeBar"]
-    address = ["tcp://172.16.30.192:1602", "tcp://172.16.30.192:15005"]
+    topic_list = ['CCLevel1'] # , "CCSizeBar"
+    address = ["tcp://127.0.0.1:1602", "tcp://10.61.10.21:1602", "tcp://10.61.10.21:15005", "tcp://172.16.30.192:1602"]
     lord = LordMsgController(topic_list, address)
     lord.start()
     time.sleep(120)

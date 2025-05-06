@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package message;
+
+message MsgHeader {
+  int64 batch = 1;     // 批号 1递增
+  int64 timestamp = 2; // 打包时间us
+  string symbol = 3;   // BTCUSDT.BN 预留扩展
+}
+
+message CCOrder {
+  int64 timestamp = 1;  // 取上游的OrderbookInc或Trade时间
+  string side = 2;      // 'B' 买 'S' 卖
+  string type = 3;      // 'A' 新增 'D' 撤单
+  int32 level = 4;      // 订单价格对应的档位号
+  double price = 5;     // 订单价格
+  double volume = 6;    // 订单数量
+  double amount = 7;    // 订单金额
+  double midprice = 8;  // 买卖挡最优价均值
+}
+
+message CCTrade {
+  int64 timestamp = 1;  // 成交时间
+  string side = 2;      // 'B' 主买 'S' 主卖
+  int32 level = 3;      // 成交 档位号
+  double price = 4;     // 成交价格
+  double volume = 5;    // 成交数量
+  double amount = 6;    // 成交金额
+  double midprice = 7;  // 买卖挡最优价均值
+}
+
+// 成交聚合数据
+message CCBar {
+  double open = 1;
+  double high = 2;
+  double low  = 3;
+  double close = 4;
+  double volume = 5;
+  double turnover = 6;   // 成交额
+  int32  tradenum = 7;
+}
+
+message CCLevelColumnar {
+  repeated int64 timestamp = 1; // 档位更新时间
+  repeated int32 level = 2;     // 档位号
+  repeated double price = 3;    // 档位价格
+  repeated double volume = 4;   // 档位数量
+}
+
+// 全挡数据量大，用了列式，不再下发结构数据
+message CCLevelMsg { 
+  MsgHeader header = 1;
+  CCLevelColumnar bid = 2;
+  CCLevelColumnar ask = 3;
+}
+
+message CCOrderMsg {
+  MsgHeader header = 1;
+  repeated CCOrder order = 2;
+}
+
+message CCTradeMsg {
+  MsgHeader header = 1;
+  repeated CCTrade trade = 2;
+}
+
+message CCBarMsg {
+  MsgHeader header = 1;
+  string type = 2;       // '3s' '1m' '1mb' '1ms'
+  CCBar bar = 3;
+}

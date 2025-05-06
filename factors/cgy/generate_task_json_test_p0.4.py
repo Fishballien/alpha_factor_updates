@@ -15,6 +15,7 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 import os
 import json
 import pandas as pd
+from pathlib import Path
 
 
 # %%
@@ -54,7 +55,8 @@ def generate_task_json_from_clusters(cluster_paths, author, output_file):
     for cl_path in cluster_paths:
         cluster_info = pd.read_csv(cl_path)
         target_cluster_info = cluster_info[cluster_info['tag_name']=='cgy_ver1109']
-        selected_names = [name.split('_')[0] for name in target_cluster_info['factor']]
+        selected_names = [name.split('_')[0] for name in target_cluster_info['factor']
+                          if 'P0.4' in name] # !!!
         tasks.extend(selected_names)
     tasks = list(set(tasks))
     
@@ -78,8 +80,13 @@ if __name__=='__main__':
 #     generate_task_json_from_py_files(dir_path, output_file)
 # =============================================================================
     cluster_paths = [
-        
+        # '/mnt/Data/xintang/multi_factor/factor_test_by_alpha/results/cluster/agg_241113_double3m/cluster_info_221201_241201.csv',
+        # '/mnt/Data/xintang/multi_factor/factor_test_by_alpha/results/cluster/agg_241114_zxt_cgy_double3m/cluster_info_221201_241201.csv',
+        # '/mnt/Data/xintang/multi_factor/factor_test_by_alpha/results/cluster/agg_241227_cgy_zxt_double3m/cluster_info_230101_250101.csv',
+        '/mnt/Data/xintang/multi_factor/factor_test_by_alpha/results/cluster/agg_250127_cgy_zxt_double3m/cluster_info_230201_250201.csv',
         ]
     author = 'cgy_ver1109'
-    output_file = "D:/crypto/prod/alpha/factors_update/project/factors/cgy/batch_241109/tasks.json" 
+    output_dir = Path("/home/xintang/crypto/prod/alpha/factors_update/project/factors/cgy/batch_241109_p0.4")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / "tasks.json" 
     generate_task_json_from_clusters(cluster_paths, author, output_file)

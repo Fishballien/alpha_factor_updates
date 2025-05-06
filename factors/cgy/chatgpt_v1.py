@@ -100,7 +100,7 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
         self.r1_func = getattr(r1_module, factor_name)
 
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel1'] = self._process_cc_level_msg
+        self.topic_func_mapping['CCRngLevel4'] = self._process_cc_level_msg
     
     def get_one_snapshot(self, ts, min_lob):
 # =============================================================================
@@ -158,7 +158,7 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
         
 
 # %%
-class FChatgptV0(FactorUpdaterTsFeatureOfSnaps):
+class FChatgptV1(FactorUpdaterTsFeatureOfSnaps):
 
     def __init__(self, factor_name, config_name):
         self.name = factor_name
@@ -166,6 +166,17 @@ class FChatgptV0(FactorUpdaterTsFeatureOfSnaps):
         super().__init__()
 
         self._init_r2_funcs()
+        
+    def _init_dir(self):
+        path_config = self.path_config
+        
+        self.param_dir = Path(path_config['param'])
+        cache_dir = Path(path_config['cache'])
+        persist_dir = Path(path_config['persist'])
+        self.cache_dir = cache_dir / self.config_name / self.name 
+        self.persist_dir = persist_dir / self.config_name / self.name
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.persist_dir.mkdir(parents=True, exist_ok=True)
            
     def _load_param(self):
         self.params = toml.load(self.param_dir / f'{self.config_name}.toml')
@@ -259,6 +270,6 @@ if __name__=='__main__':
     factor_name = args.factor_name
     batch_name = args.batch_name
     
-    updater = FChatgptV0(factor_name, batch_name)
+    updater = FChatgptV1(factor_name, batch_name)
     updater.run()
         

@@ -15,7 +15,7 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 import sys
 from pathlib import Path
 import numpy as np
-import pickle
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
@@ -29,7 +29,7 @@ sys.path.append(str(project_dir))
 # %%
 from core.factor_updater import FactorUpdaterTsFeatureOfSnaps
 from core.cache_persist_manager import CacheManager, GeneralPersistenceMgr
-from core.immediate_process_manager import (ImmediateLevelManager, LevelProcessor, 
+from core.immediate_process_manager import (ImmediateProcessManager, LevelProcessor, Processor,
                                             extract_arrays_from_pb_msg)
 from utils.calc import calc_imb
 from utils.decorator_utils import timeit
@@ -54,54 +54,58 @@ def process_snapshot(*args, n_sigma):
     
     for n in n_sigma:
         lt_n_idx = lp.get_lt_n_sigma_idx(n)
+        thres = lp.get_n_sigma_thres(n)
         bid_lt_amt_sum = np.sum(side_amt['bid'][lt_n_idx['bid']])
         ask_lt_amt_sum = np.sum(side_amt['ask'][lt_n_idx['ask']])
         imb_lt = calc_imb(bid_lt_amt_sum, ask_lt_amt_sum)
-        results.append((n, imb_lt))
+        results.append((n, imb_lt, bid_lt_amt_sum, ask_lt_amt_sum, thres))
         
     return results
 
 
-class MyImmediateProcessMgr(ImmediateLevelManager):
+class MyImmediateProcessMgr(ImmediateProcessManager):
 
     def load_info(self, param):
         self.param = param
         factors_related = self.param['factors_related']
         final_factors = factors_related['final']
         self.n_sigma = final_factors['n_sigma']
-
-    def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel1'] = self._process_cc_level_msg
     
-    def get_one_snapshot(self, ts, min_lob):
-        snapshot = {}
+    def _init_container(self):
+        self.container = {}
+        self.factor = defaultdict(dict)
+        self.update_time = {}
+    
+    def _init_topic_func_mapping(self):
+        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg
+    
+    def _process_cc_level_msg(self, pb_msg):
+        p = Processor(pb_msg)
+        self.container[p.symbol] = p  # 只接收并存储到 container 中
+    
+    def get_one_snapshot(self):
         with ProcessPoolExecutor(max_workers=5) as executor:
             futures = {}
-            for symbol, p in list(min_lob.items()):
+            for symbol, p in list(self.container.items()):
                 pb_msg = p.pb_msg
-                ts_ = p.ts
+                ts = p.ts
                 arrays = extract_arrays_from_pb_msg(pb_msg)
-                snapshot[symbol] = arrays
 
                 future = executor.submit(process_snapshot, *arrays, n_sigma=self.n_sigma)
-                futures[future] = (symbol, ts_)
+                futures[future] = (symbol, ts)
 
             for future in as_completed(futures):
                 try:
                     results = future.result()
-                    symbol, ts_ = futures[future]
+                    symbol, ts = futures[future]
 
                     for n, imb_lt in results:
                         self.factor[n][symbol] = imb_lt
                     
-                    self.update_time[symbol] = ts_
+                    self.update_time[symbol] = ts
 
                 except Exception as exc:
                     self.log.error(f"Snapshot processing generated an exception: {exc}")
-        if ts.minute in [0, 30]:
-            ts_to_save = ts.strftime("%Y-%m-%d_%H%M%S")
-            with open(f'/mnt/Data/xintang/prod/alpha/factors_update/debug/f39/{ts_to_save}.pkl', 'wb') as f:
-                pickle.dump(snapshot, f)
 
 
 # %%
@@ -150,6 +154,64 @@ class F39(FactorUpdaterTsFeatureOfSnaps):
         
 # %%
 if __name__=='__main__':
-    updater = F39()
-    updater.run()
+    import pandas as pd
+    
+    n_sigma = [-3.0, -2.0, -1.0, 
+    0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 
+    7.5, 10.0, 15.0, 20.0, 25.0]
+    
+    save_dir = Path(r'D:\crypto\DataProcessing\lob_shape\sample_data\compare\yl')
+    name = '0.parquet'
+    lob_path = save_dir / name
+    raw_lob = pd.read_parquet(lob_path)
+    bid_side_idx = raw_lob['lob_bid'] > 0
+    ask_side_idx = raw_lob['lob_ask'] > 0
+    bid_lob = raw_lob[bid_side_idx]
+    ask_lob = raw_lob[ask_side_idx]
+    bid_price_arr = bid_lob['price'][::-1]
+    bid_volume_arr = bid_lob['lob_bid'][::-1]
+    bid_level_arr = np.arange(1, len(bid_lob)+1, 1)
+    ask_price_arr = ask_lob['price']
+    ask_volume_arr = ask_lob['lob_ask']
+    ask_level_arr = np.arange(1, len(ask_lob)+1, 1)
+    
+    res = process_snapshot(*(bid_price_arr, bid_volume_arr, bid_level_arr, 
+                             ask_price_arr, ask_volume_arr, ask_level_arr), n_sigma=n_sigma)
+    indv1 = pd.read_parquet(r'D:\crypto\prod\alpha\factors_update\verify\sample_data\indv1.parquet')
+    indv4 = pd.read_parquet(r'D:\crypto\prod\alpha\factors_update\verify\sample_data\indv4.parquet')
+    n_sigma_name = '01'
+    bid_lt = indv1['bid_total_amount'] - indv4['bid_amt_gt_sigma_01']
+    ask_lt = indv1['ask_total_amount'] - indv4['ask_amt_gt_sigma_01']
+    imb = (bid_lt - ask_lt) / (bid_lt + ask_lt)
+    print(bid_lt.iloc[0], ask_lt.iloc[0], imb.iloc[0])
+    print(res[3])
+    
+    curr_dataset = np.zeros((len(n_sigma), 3))
+    MINIMUM_SIZE_FILTER = 1e-8
+    lob_bid = raw_lob['lob_bid']
+    lob_ask = raw_lob['lob_ask']
+    prices = raw_lob['price']
+    lob_all = lob_bid + lob_ask
+    lob_valid_idx = lob_all > MINIMUM_SIZE_FILTER
+    bid_amt = lob_bid * prices
+    ask_amt = lob_ask * prices
+    all_amt = lob_all * prices
+    mean = np.median(all_amt[lob_valid_idx])
+    std = np.std(all_amt[lob_valid_idx])
+    
+    for i_n, n in enumerate(n_sigma):
+        thres = mean + n * std
+        curr_dataset[i_n, 0] = np.sum(bid_amt[bid_amt > thres])
+        curr_dataset[i_n, 1] = np.sum(ask_amt[ask_amt > thres])
+        curr_dataset[i_n, 2] = thres
         
+    bid_total_amount = np.sum(bid_amt)
+    ask_total_amount = np.sum(ask_amt)
+    bid_lt_bt = - curr_dataset[:, 0] + bid_total_amount
+    ask_lt_bt = - curr_dataset[:, 1] + ask_total_amount
+    
+    '''
+    241207发现问题：gt/lt n_sigma的thres应该使用all_amt_median而不是mean，修复后完全对上
+    6765846.436501183 5061760.799399 0.14407695513677474
+    (0.1, 0.1440769551365924, 6765846.4365, 5061760.7994, 15144.900725076463)
+    '''

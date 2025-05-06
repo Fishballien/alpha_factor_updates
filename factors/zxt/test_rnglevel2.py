@@ -15,6 +15,7 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 import sys
 from pathlib import Path
 import numpy as np
+import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
@@ -28,9 +29,9 @@ sys.path.append(str(project_dir))
 # %%
 from core.factor_updater import FactorUpdaterTsFeatureOfSnaps
 from core.cache_persist_manager import CacheManager, GeneralPersistenceMgr
-from core.immediate_process_manager import (ImmediateLevelManager, LevelProcessor,
+from core.immediate_process_manager import (ImmediateLevelManager, LevelProcessor, 
                                             extract_arrays_from_pb_msg)
-from utils.calc import calc_side_ratio
+from utils.calc import calc_imb
 from utils.decorator_utils import timeit
 
 
@@ -38,32 +39,26 @@ from utils.decorator_utils import timeit
 class MyCacheMgr(CacheManager):
     
     def init_cache_mapping(self):
-        final_factors = self.params['factors_related']['final']
-        n_sigma_list = final_factors['n_sigma']
+        n_sigma_list = self.params['factors_related']['final']['n_sigma']
         n_sigma_names = [str(n).replace('.', '').replace('-', 'minus') for n in n_sigma_list]
-        side_type_list = final_factors['side_type']
-        self.cache_mapping = {(n, side_type): f'{n_name}_{side_type}' 
-                              for n, n_name in zip(n_sigma_list, n_sigma_names)
-                              for side_type in side_type_list}
+        self.cache_mapping = {n: n_name for n, n_name in zip(n_sigma_list, n_sigma_names)}
         
         
 # %% immediate process
-def process_snapshot(*args, n_sigma_list):
+def process_snapshot(*args, n_sigma):
     lp = LevelProcessor(*args)
     
-    results = {}
+    results = []
     
     side_amt = lp.side_amt
-
-    for n in n_sigma_list:
+    
+    for n in n_sigma:
         lt_n_idx = lp.get_lt_n_sigma_idx(n)
         bid_lt_amt_sum = np.sum(side_amt['bid'][lt_n_idx['bid']])
         ask_lt_amt_sum = np.sum(side_amt['ask'][lt_n_idx['ask']])
-        bid_ratio = calc_side_ratio(bid_lt_amt_sum, bid_lt_amt_sum, ask_lt_amt_sum)
-        ask_ratio = calc_side_ratio(ask_lt_amt_sum, bid_lt_amt_sum, ask_lt_amt_sum)
-        results[(n, 'bid')] = bid_ratio
-        results[(n, 'ask')] = ask_ratio
-
+        imb_lt = calc_imb(bid_lt_amt_sum, ask_lt_amt_sum)
+        results.append((n, imb_lt))
+        
     return results
 
 
@@ -71,54 +66,58 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
 
     def load_info(self, param):
         self.param = param
-        
         factors_related = self.param['factors_related']
         final_factors = factors_related['final']
-        self.n_sigma_list = final_factors['n_sigma']
-    
-    def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel1'] = self._process_cc_level_msg
+        self.n_sigma = final_factors['n_sigma']
 
-    def get_one_snapshot(self, ts, min_lob):
+    def _init_topic_func_mapping(self):
+        self.topic_func_mapping['CCRngLevel2'] = self._process_cc_level_msg
+    
+    def get_one_snapshot(self, ts):
+        snapshot = {}
         with ProcessPoolExecutor(max_workers=5) as executor:
             futures = {}
-            for symbol, p in list(min_lob.items()):
+            for symbol, p in list(self.container[ts].items()):
                 pb_msg = p.pb_msg
-                ts = p.ts
+                ts_ = p.ts
                 arrays = extract_arrays_from_pb_msg(pb_msg)
+                snapshot[symbol] = arrays
 
-                future = executor.submit(process_snapshot, *arrays, n_sigma_list=self.n_sigma_list)
-                futures[future] = (symbol, ts)
+                future = executor.submit(process_snapshot, *arrays, n_sigma=self.n_sigma)
+                futures[future] = (symbol, ts_)
 
             for future in as_completed(futures):
                 try:
                     results = future.result()
-                    symbol, ts = futures[future]
+                    symbol, ts_ = futures[future]
 
-                    for key, ratio in results.items():
-                        self.factor[key][symbol] = ratio
-
-                    self.update_time[symbol] = ts
+                    for n, imb_lt in results:
+                        self.factor[n][symbol] = imb_lt
+                    
+                    self.update_time[symbol] = ts_
 
                 except Exception as exc:
                     self.log.error(f"Snapshot processing generated an exception: {exc}")
-        
+        if ts.minute in [0, 30]:
+            ts_to_save = ts.strftime("%Y-%m-%d_%H%M%S")
+            with open(f'/mnt/Data/xintang/prod/alpha/factors_update/debug/rnglevel2/{ts_to_save}.pkl', 'wb') as f:
+                pickle.dump(snapshot, f)
+
 
 # %%
-class F42(FactorUpdaterTsFeatureOfSnaps):
+class F39(FactorUpdaterTsFeatureOfSnaps):
     
-    name = 'f42_small_bora_amt_ratio'
+    name = 'test_rnglevel2'
     
     def __init__(self):
         super().__init__()
-
+    
     def _init_param_names(self):
         for pr in self.param_set:
             n_sigma = str(pr['n_sigma']).replace('.', '').replace('-', 'minus')
-            side_type = pr['side_type']
             mmt_wd = pr['mmt_wd']
             suffix = '' if mmt_wd == '0min' else f'_mmt{mmt_wd}_ma'
-            pr['name'] = f'{side_type}_{n_sigma}{suffix}'
+            pr['name'] = f'n{n_sigma}{suffix}'
 
     def _init_managers(self):
         # 即时记录
@@ -128,16 +127,15 @@ class F42(FactorUpdaterTsFeatureOfSnaps):
         self.cache_mgr = MyCacheMgr(self.params, self.param_set, self.cache_dir, 
                                     self.cache_lookback, file_name='cache', log=self.log)
         self.persist_mgr = GeneralPersistenceMgr(self.params, self.param_set, self.persist_dir, log=self.log)
-
+    
     @timeit
     def _final_calc(self, ts):
         temp_dict = {}
         for pr in self.param_set:
             n_sigma = pr['n_sigma']
-            side_type = pr['side_type']
             mmt_wd = pr['mmt_wd']
             pr_name = pr['name']
-            factor_per_minute = self.cache_mgr[(n_sigma, side_type)]
+            factor_per_minute = self.cache_mgr[n_sigma]
             if len(factor_per_minute) == 0:
                 continue
             if mmt_wd == '0min':
@@ -148,10 +146,10 @@ class F42(FactorUpdaterTsFeatureOfSnaps):
             # self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
             temp_dict[pr_name] = factor_final
         return temp_dict
-    
+
         
 # %%
 if __name__=='__main__':
-    updater = F42()
+    updater = F39()
     updater.run()
         

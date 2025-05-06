@@ -60,7 +60,6 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
     def _init_container(self):
         self.close = defaultdict(lambda: defaultdict(float))
         self.update_time = {}
-        self.newest_ts = pd.to_datetime(0, unit='ms')
     
     def _init_topic_func_mapping(self):
         self.topic_func_mapping['CCBar'] = self._process_cc_bar_msg
@@ -68,21 +67,17 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
     def _process_cc_bar_msg(self, pb_msg):
         bp = BarProcessor(pb_msg)
         type_ = bp.type
-        if type_ != '3s':
+        if type_ != '1ms':
             return
         symbol = bp.symbol
         ts = bp.ts
-        ts_in_dt = pd.to_datetime(ts, unit='ms')
-        # ts_in_dt = convert_to_previous_3s(ts_in_dt)  # !!!: temp
+        ts_in_dt_org = pd.to_datetime(ts, unit='ms')
+        ts_in_dt = convert_to_previous_3s(ts_in_dt_org)  # !!!: temp
         
         now = datetime.utcnow()
-        diff = now - ts_in_dt
-        if diff > timedelta(minutes=1):
-            print(symbol, diff, now, ts_in_dt)
-        self.newest_ts = ts_in_dt if ts_in_dt > self.newest_ts else self.newest_ts
+        print(symbol, now-ts_in_dt_org)
         
-        with self.lock['close']:
-            self.close[ts_in_dt][symbol] = bp.close
+        self.close[ts_in_dt][symbol] = bp.close
         self.update_time[symbol] = ts
             
     def delete_once(self, ts):
@@ -151,20 +146,12 @@ class FactorsForPMV0(FactorUpdaterTsFeatureOfSnaps):
                                              self._delete_once)
         
         ## io
-        self.task_scheduler['io'].add_task("1 Minutes Save to Cache", 'minute', 1, self._save_to_cache)
+        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
 
     @timeit
     def _iv_record(self, ts):
-        self._record_close_info(ts)
-        
-    @timeit
-    def _wait_for_complete_ts_data(self, ts):
-        while True:
-            if self.immediate_mgr.newest_ts <= ts:
-                time.sleep(1)
-            else:
-                break
+        self._record_close_info()
         
     def _record_close_info(self):
         for ts_of_data, ts_iv in list(self.immediate_mgr.close.items()):
@@ -178,7 +165,7 @@ class FactorsForPMV0(FactorUpdaterTsFeatureOfSnaps):
         self.immediate_mgr.delete_once(ts)
                     
     @timeit
-    def _final_calc(self, ts):
+    def _final_calc_n_send(self, ts):
         temp_dict = {}
         for pr in self.param_set:
             twap_wd = pr['twap_wd']
@@ -194,16 +181,23 @@ class FactorsForPMV0(FactorUpdaterTsFeatureOfSnaps):
                 ts_to_record = ts
             else:
                 twap_wd_real = self.twap_wd_mapping[twap_wd]
-                self.pre_ts = self.pre_ts or ts - timedelta(minutes=30)
-                if self.pre_ts + twap_wd_real <= ts: # TODO: 当前仅支持twap时间小于计算时间间隔，若有进一步需求再拓展
+                if self.pre_ts is not None and self.pre_ts + twap_wd_real <= ts: # TODO: 当前仅支持twap时间小于计算时间间隔，若有进一步需求再拓展
                     factor_final = close_org.loc[self.pre_ts:(self.pre_ts+twap_wd_real)].mean(axis=0)
                     ts_to_record = self.pre_ts
                     
             if factor_final is not None:
                 # self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts_to_record)
-                temp_dict[pr_name] = {'ts': ts_to_record, 'factor_final': factor_final}
+                temp_dict[pr_name] = (ts_to_record, factor_final)
         return temp_dict
     
+    @timeit
+    def _final_record(self, ts, temp_dict):
+        for pr_name, factor_new_row_info in temp_dict.items():
+            ts_to_record, factor_new_row = factor_new_row_info
+            self.persist_mgr.add_row(pr_name, factor_new_row, ts_to_record)
+            
+        self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
+        
     def _update_pre_ts(self, ts):
         self.pre_ts = ts
     

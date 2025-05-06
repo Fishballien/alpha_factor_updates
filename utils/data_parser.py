@@ -16,6 +16,9 @@ import re
 from google.protobuf.message import DecodeError
 
 
+from utils.decorator_utils import timeit
+
+
 # %%
 __all__ = ['ZMQ_TOPIC_LEN', 'parse_header', 'deserialize_pb']
 
@@ -33,7 +36,7 @@ def parse_header(msg): # fr xwy
         print(f"Failed to decode topic: {e}")
         return None
 
-
+# @timeit
 def deserialize_pb(data, pb_class): # fr xwy
     pb_msg = pb_class()
     try:

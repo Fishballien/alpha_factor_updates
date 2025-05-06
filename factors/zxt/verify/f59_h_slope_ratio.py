@@ -14,6 +14,7 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 # %% imports
 import sys
 from pathlib import Path
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
@@ -27,7 +28,7 @@ sys.path.append(str(project_dir))
 # %%
 from core.factor_updater import FactorUpdaterTsFeatureOfSnapsWithTickSize
 from core.cache_persist_manager import CacheManager, GeneralPersistenceMgr
-from core.immediate_process_manager import (ImmediateLevelManager, LevelProcessor, 
+from core.immediate_process_manager import (ImmediateProcessManager, LevelProcessor, Processor,
                                             extract_arrays_from_pb_msg)
 from utils.calc import calc_imb, compute_slope
 from utils.decorator_utils import timeit
@@ -75,7 +76,7 @@ def process_snapshot(*args, x_type_list, pct_h_list, tick_size):
     return results
 
 
-class MyImmediateProcessMgr(ImmediateLevelManager):
+class MyImmediateProcessMgr(ImmediateProcessManager):
 
     def load_info(self, param, tick_size_mapping):
         self.param = param
@@ -86,13 +87,22 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
         self.x_type_list = final_factors['x_type']
         self.pct_h_list = final_factors['pct_h']
     
+    def _init_container(self):
+        self.container = {}
+        self.factor = defaultdict(dict)
+        self.update_time = {}
+    
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel1'] = self._process_cc_level_msg
+        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg
 
-    def get_one_snapshot(self, ts, min_lob):
+    def _process_cc_level_msg(self, pb_msg):
+        p = Processor(pb_msg)
+        self.container[p.symbol] = p
+
+    def get_one_snapshot(self):
         with ProcessPoolExecutor(max_workers=5) as executor:
             futures = {}
-            for symbol, p in list(min_lob.items()):
+            for symbol, p in list(self.container.items()):
                 pb_msg = p.pb_msg
                 ts = p.ts
                 arrays = extract_arrays_from_pb_msg(pb_msg)
@@ -171,6 +181,36 @@ class F59(FactorUpdaterTsFeatureOfSnapsWithTickSize):
         
 # %%
 if __name__=='__main__':
-    updater = F59()
-    updater.run()
-        
+    import pandas as pd
+    import numpy as np
+    
+    x_type_list = ['pct', 'layer', 'tick']
+    pct_h_list = [0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.15]
+    tick_size = 0.01
+    
+    save_dir = Path(r'D:\crypto\DataProcessing\lob_shape\sample_data\compare\yl')
+    name = '0.parquet'
+    lob_path = save_dir / name
+    raw_lob = pd.read_parquet(lob_path)
+    bid_side_idx = raw_lob['lob_bid'] > 0
+    ask_side_idx = raw_lob['lob_ask'] > 0
+    bid_lob = raw_lob[bid_side_idx]
+    ask_lob = raw_lob[ask_side_idx]
+    bid_price_arr = bid_lob['price'][::-1].values
+    bid_volume_arr = bid_lob['lob_bid'][::-1].values
+    bid_level_arr = np.arange(1, len(bid_lob)+1, 1)
+    ask_price_arr = ask_lob['price'].values
+    ask_volume_arr = ask_lob['lob_ask'].values
+    ask_level_arr = np.arange(1, len(ask_lob)+1, 1)
+    
+    res = process_snapshot(*(bid_price_arr, bid_volume_arr, bid_level_arr, 
+                             ask_price_arr, ask_volume_arr, ask_level_arr),
+                           x_type_list=x_type_list, pct_h_list=pct_h_list, tick_size=tick_size)
+    indv9 = pd.read_parquet(r'D:\crypto\prod\alpha\factors_update\verify\sample_data\indv9.parquet')
+    x_type = 'tick'
+    pct_range = '01'
+    bid_pct_slope = indv9[f'bid_slope_{x_type}_{pct_range}_h']
+    ask_pct_slope = indv9[f'ask_slope_{x_type}_{pct_range}_h']
+    imb = (bid_pct_slope - ask_pct_slope) / (bid_pct_slope + ask_pct_slope)
+    print(bid_pct_slope.iloc[0], ask_pct_slope.iloc[0], imb.iloc[0])
+    print(res[(x_type, 0.1)])

@@ -1,3 +1,5 @@
+
+
 # -*- coding: utf-8 -*-
 """
 Created on Mon Sep  9 10:57:01 2024
@@ -226,7 +228,7 @@ class F11(FactorUpdaterTsFeatureOfSnaps):
                             self.ratio_mgr[(side_type, volume_type, size_div_type, size_type, denominator_wd)] = ratio
        
     @timeit
-    def _final_calc_n_send(self, ts):
+    def _final_calc(self, ts):
         temp_dict = {}
         
         with ProcessPoolExecutor(max_workers=20) as executor:
@@ -256,7 +258,7 @@ class F11(FactorUpdaterTsFeatureOfSnaps):
                     factor_final = future.result()
                     pr_name = futures[future]
     
-                    self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
+                    # self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
                     temp_dict[pr_name] = factor_final
     
                 except Exception as exc:

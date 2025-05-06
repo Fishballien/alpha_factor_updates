@@ -20,6 +20,7 @@ import importlib
 from datetime import timedelta
 import traceback
 import argparse
+import gc
 
 
 # %% add sys path
@@ -30,13 +31,14 @@ sys.path.append(str(project_dir))
 
 
 # %%
-from core.factor_updater import FactorUpdaterTsFeatureOfSnaps
+from core.factor_updater import FactorUpdaterTsFeatureOfSnapsTest
 from core.cache_persist_manager import CacheManager, GeneralPersistenceMgr
-from core.immediate_process_manager import (ImmediateLevelManager, LevelProcessorForChatgptV0,
+from core.immediate_process_manager import (ImmediateLevelManagerFromDict, LevelProcessorForChatgptV0,
                                             extract_arrays_from_pb_msg)
 from utils.decorator_utils import timeit
 from utils.datautils import align_series_index
 from utils.timeutils import parse_time_string
+from receiver.rcv_fr_lord import LordSaveToDict
 
 
 # %% cache & persist
@@ -61,104 +63,185 @@ class MyCacheMgr(CacheManager):
         
         
 # %% immediate process
-def process_snapshot(*args, r1_func, max_levels, max_pcts):
-    lp = LevelProcessorForChatgptV0(*args)
-    sides = ('bid', 'ask')
+# def process_snapshot(*args, r1_func, max_levels, max_pcts):
+#     lp = LevelProcessorForChatgptV0(*args)
+#     sides = ('bid', 'ask')
     
-    results = {}
+#     results = {}
     
-    for max_level in max_levels:
-        lob_within_level = lp.lob_within_level(max_level)
-        for side in sides:
-            if len(lob_within_level[side]) == 0:
-                continue
-            results[(side, 'level', max_level)] = r1_func(lob_within_level[side])
+#     for max_level in max_levels:
+#         lob_within_level = lp.lob_within_level(max_level)
+#         for side in sides:
+#             if len(lob_within_level[side]) == 0:
+#                 continue
+#             results[(side, 'level', max_level)] = r1_func(lob_within_level[side])
             
-    for pct in max_pcts:
-        lob_within_pct = lp.lob_within_pct(pct)
-        for side in sides:
-            if len(lob_within_pct[side]) == 0:
-                continue
-            results[(side, 'pct', pct)] = r1_func(lob_within_pct[side])
+#     for pct in max_pcts:
+#         lob_within_pct = lp.lob_within_pct(pct)
+#         for side in sides:
+#             if len(lob_within_pct[side]) == 0:
+#                 continue
+#             results[(side, 'pct', pct)] = r1_func(lob_within_pct[side])
     
-    return results
+#     return results
 
 
-class MyImmediateProcessMgr(ImmediateLevelManager):
+# class MyImmediateProcessMgr(ImmediateLevelManager):
+
+#     def load_info(self, param, factor_name):
+#         self.param = param
+        
+#         factors_related = self.param['factors_related']
+#         final_factors = factors_related['r1']
+#         self.max_levels = final_factors['max_levels']
+#         self.max_pcts = final_factors['max_pcts']
+        
+#         module = self.param['func_module']
+#         r1_module_name = f'{module}.R1.{factor_name}'
+#         r1_module = importlib.import_module(r1_module_name)
+#         self.r1_func = getattr(r1_module, factor_name)
+
+#     def _init_topic_func_mapping(self):
+#         self.topic_func_mapping['CCLevel1'] = self._process_cc_level_msg
+    
+#     def get_one_snapshot(self, ts, min_lob):
+# # =============================================================================
+# #         from tqdm import tqdm
+# #         for symbol, p in tqdm(list(self.container.items()), desc='get_snapshot'):
+# #             try:
+# #                 pb_msg = p.pb_msg
+# #                 ts = p.ts
+# #                 arrays = extract_arrays_from_pb_msg(pb_msg)
+# #         
+# #                 # 直接调用 process_snapshot 函数而不是提交到线程池
+# #                 results = process_snapshot(*arrays,
+# #                                             r1_func=self.r1_func,
+# #                                             max_levels=self.max_levels,
+# #                                             max_pcts=self.max_pcts)
+# #                 
+# #                 # 处理结果
+# #                 for key, f in results.items():
+# #                     self.factor[key][symbol] = f
+# #         
+# #                 # 更新时间戳
+# #                 self.update_time[symbol] = ts
+# #         
+# #             except Exception as exc:
+# #                 traceback.print_exc()
+# #                 self.log.error(f"Snapshot processing generated an exception: {exc}")
+# # =============================================================================
+
+#         with ProcessPoolExecutor(max_workers=5) as executor:
+#             futures = {}
+#             for symbol, p in list(min_lob.items()):
+#                 pb_msg = p.pb_msg
+#                 ts = p.ts
+#                 arrays = extract_arrays_from_pb_msg(pb_msg)
+
+#                 future = executor.submit(process_snapshot, *arrays, 
+#                                          r1_func=self.r1_func,
+#                                          max_levels=self.max_levels,
+#                                          max_pcts=self.max_pcts)
+#                 futures[future] = (symbol, ts)
+
+#             for future in as_completed(futures):
+#                 try:
+#                     results = future.result()
+#                     symbol, ts = futures[future]
+
+#                     for key, f in results.items():
+#                         self.factor[key][symbol] = f
+
+#                     self.update_time[symbol] = ts
+
+#                 except Exception as exc:
+#                     traceback.print_exc()
+#                     self.log.error(f"Snapshot processing generated an exception: {exc}")
+#         gc.collect()
+
+
+# %% immediate process
+def process_snapshot(*args, r1_func, max_levels, max_pcts):
+    try:
+        lp = LevelProcessorForChatgptV0(*args)
+        sides = ('bid', 'ask')
+        results = {}
+
+        for max_level in max_levels:
+            lob_within_level = lp.lob_within_level(max_level)
+            for side in sides:
+                if len(lob_within_level[side]) == 0:
+                    continue
+                results[(side, 'level', max_level)] = r1_func(lob_within_level[side])
+
+        for pct in max_pcts:
+            lob_within_pct = lp.lob_within_pct(pct)
+            for side in sides:
+                if len(lob_within_pct[side]) == 0:
+                    continue
+                results[(side, 'pct', pct)] = r1_func(lob_within_pct[side])
+
+        return results
+
+    except Exception as e:
+        traceback.print_exc()
+        return {}  # 出错就返回空字典，主进程判断处理
+
+    finally:
+        gc.collect()  # 子进程主动清理
+
+
+class MyImmediateProcessMgr(ImmediateLevelManagerFromDict):
 
     def load_info(self, param, factor_name):
         self.param = param
-        
+
         factors_related = self.param['factors_related']
         final_factors = factors_related['r1']
         self.max_levels = final_factors['max_levels']
         self.max_pcts = final_factors['max_pcts']
-        
+
         module = self.param['func_module']
         r1_module_name = f'{module}.R1.{factor_name}'
         r1_module = importlib.import_module(r1_module_name)
         self.r1_func = getattr(r1_module, factor_name)
 
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel1'] = self._process_cc_level_msg
-    
-    def get_one_snapshot(self, ts, min_lob):
-# =============================================================================
-#         from tqdm import tqdm
-#         for symbol, p in tqdm(list(self.container.items()), desc='get_snapshot'):
-#             try:
-#                 pb_msg = p.pb_msg
-#                 ts = p.ts
-#                 arrays = extract_arrays_from_pb_msg(pb_msg)
-#         
-#                 # 直接调用 process_snapshot 函数而不是提交到线程池
-#                 results = process_snapshot(*arrays,
-#                                             r1_func=self.r1_func,
-#                                             max_levels=self.max_levels,
-#                                             max_pcts=self.max_pcts)
-#                 
-#                 # 处理结果
-#                 for key, f in results.items():
-#                     self.factor[key][symbol] = f
-#         
-#                 # 更新时间戳
-#                 self.update_time[symbol] = ts
-#         
-#             except Exception as exc:
-#                 traceback.print_exc()
-#                 self.log.error(f"Snapshot processing generated an exception: {exc}")
-# =============================================================================
+        self.topic_func_mapping['CCLevel'] = self._process_cc_level_msg
 
+    def get_one_snapshot(self, ts, min_lob):
+        
+        return
         with ProcessPoolExecutor(max_workers=5) as executor:
             futures = {}
-            for symbol, p in list(min_lob.items()):
-                pb_msg = p.pb_msg
-                ts = p.ts
+            for symbol, pb_msg in list(min_lob.items()):
                 arrays = extract_arrays_from_pb_msg(pb_msg)
 
-                future = executor.submit(process_snapshot, *arrays, 
-                                         r1_func=self.r1_func,
-                                         max_levels=self.max_levels,
-                                         max_pcts=self.max_pcts)
+                future = executor.submit(
+                    process_snapshot,
+                    *arrays,
+                    r1_func=self.r1_func,
+                    max_levels=self.max_levels,
+                    max_pcts=self.max_pcts
+                )
                 futures[future] = (symbol, ts)
 
             for future in as_completed(futures):
-                try:
-                    results = future.result()
-                    symbol, ts = futures[future]
+                symbol, ts = futures[future]
+                results = future.result()
 
-                    for key, f in results.items():
-                        self.factor[key][symbol] = f
+                if not results:
+                    self.log.warning(f"Empty result for {symbol} at {ts}")
+                    continue
 
-                    self.update_time[symbol] = ts
+                for key, f in results.items():
+                    self.factor[key][symbol] = f
 
-                except Exception as exc:
-                    traceback.print_exc()
-                    self.log.error(f"Snapshot processing generated an exception: {exc}")
-        
+                self.update_time[symbol] = ts
+
 
 # %%
-class FChatgptV0(FactorUpdaterTsFeatureOfSnaps):
+class FChatgptV1(FactorUpdaterTsFeatureOfSnapsTest):
 
     def __init__(self, factor_name, config_name):
         self.name = factor_name
@@ -166,6 +249,20 @@ class FChatgptV0(FactorUpdaterTsFeatureOfSnaps):
         super().__init__()
 
         self._init_r2_funcs()
+        
+    def _init_msg_controller(self):
+        self.msg_controller = LordSaveToDict(self.topic_list, address=self.address, log=self.log)
+        
+    def _init_dir(self):
+        path_config = self.path_config
+        
+        self.param_dir = Path(path_config['param'])
+        cache_dir = Path(path_config['cache'])
+        persist_dir = Path(path_config['persist'])
+        self.cache_dir = cache_dir / self.config_name / self.name 
+        self.persist_dir = persist_dir / self.config_name / self.name
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.persist_dir.mkdir(parents=True, exist_ok=True)
            
     def _load_param(self):
         self.params = toml.load(self.param_dir / f'{self.config_name}.toml')
@@ -259,6 +356,6 @@ if __name__=='__main__':
     factor_name = args.factor_name
     batch_name = args.batch_name
     
-    updater = FChatgptV0(factor_name, batch_name)
+    updater = FChatgptV1(factor_name, batch_name)
     updater.run()
         

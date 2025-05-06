@@ -35,6 +35,25 @@ def calc_side_ratio(s, a, b):
 
 # %% tick related
 # @njit()
+# =============================================================================
+# def is_integer_price(price, tick_size, multiplier):
+#     """
+#     判断给定的价格是否为“整数”价格。
+#     
+#     参数：
+#     price (float) - 需要判断的价格
+#     tick_size (float) - 最小变动单位
+#     
+#     返回值：
+#     bool - 如果价格是“整数”价格，返回True，否则返回False
+#     """
+#     # 计算整数价格的单位
+#     integer_price_unit = multiplier * tick_size
+#     # 判断价格是否为整数价格
+#     return abs(price % integer_price_unit) < tick_size / 2
+# =============================================================================
+
+
 def is_integer_price(price, tick_size, multiplier):
     """
     判断给定的价格是否为“整数”价格。
@@ -47,14 +66,16 @@ def is_integer_price(price, tick_size, multiplier):
     bool - 如果价格是“整数”价格，返回True，否则返回False
     """
     # 计算整数价格的单位
-    integer_price_unit = multiplier * tick_size
+    int_price = round(price / tick_size) 
     # 判断价格是否为整数价格
-    return abs(price % integer_price_unit) < tick_size / 2
+    return abs(int_price % multiplier) < 1
 
 
 def if_ticktimes(price_arr, tick_size, multiplier):
     if_ticktimes_arr = np.zeros(len(price_arr), dtype=np.int32)
     for i_p, px in enumerate(price_arr):
+        # if i_p == 6:
+        #     breakpoint()
         if is_integer_price(px, tick_size, multiplier):
             if_ticktimes_arr[i_p] = 1
     return if_ticktimes_arr

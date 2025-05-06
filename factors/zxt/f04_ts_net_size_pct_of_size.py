@@ -396,7 +396,7 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
                                            result, ts)
 
     @timeit
-    def _final_calc_n_send(self, ts):
+    def _final_calc(self, ts):
         temp_dict = {}
         
         with ProcessPoolExecutor(max_workers=10) as executor:
@@ -426,7 +426,7 @@ class F04(FactorUpdaterTsFeatureOfSnaps):
                 factor_final = future.result()
                 pr_name = futures[future]
     
-                self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
+                # self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
                 temp_dict[pr_name] = factor_final
     
         return temp_dict

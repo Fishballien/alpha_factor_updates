@@ -16,6 +16,7 @@ from pathlib import Path
 import pymysql
 import yaml
 import time
+import numpy as np
 
 
 from utils.dirutils import load_path_config
@@ -72,64 +73,46 @@ class DatabaseHandler:
                     self.log.error("Max retries reached, failed to connect to the database")
                     raise e  # 超过重试次数，抛出异常
         return connection
-    
-    @run_by_thread(daemon=False)
-    def insert_data(self, author, factor_category, factor_name, symbol, factor_value, data_ts):
-        """插入单条数据，自动连接并在插入后关闭连接"""
-        connection = None
-        try:
-            # 建立数据库连接，带有自动重试机制
-            connection = self.connect()
-            if not connection:
-                return  # 如果没有连接上，不继续执行插入
-    
-            # 执行插入操作
-            cursor = connection.cursor()
-            insert_query = """
-            INSERT INTO factors_update (author, factor_category, factor_name, symbol, factor_value, data_ts)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE 
-                factor_value = VALUES(factor_value),
-                data_ts = VALUES(data_ts);
-            """
-            cursor.execute(insert_query, (author, factor_category, factor_name, symbol, factor_value, data_ts))
-            connection.commit()
-        
-        except pymysql.MySQLError as e:
-            self.log.error(f"Error while inserting or updating data: {e}")
-        
-        finally:
-            # 关闭游标和连接
-            if connection and connection.open:
-                cursor.close()
-                connection.close()
-    
-    @run_by_thread(daemon=False)
+
+    def __enter__(self):
+        """
+        进入上下文时，自动建立数据库连接
+        """
+        self.connection = self.connect()
+        if not self.connection:
+            raise ConnectionError("Failed to establish database connection.")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        退出上下文时，关闭数据库连接
+        """
+        if self.connection:
+            self.connection.close()
+            self.connection = None
+
     def batch_insert_data(self, author, factor_category, factor_name, series, data_ts):
         """
-        批量插入数据，自动连接并在插入后关闭连接
+        批量插入数据，使用 self.connection
         :param author: 共享的 author
         :param factor_category: 共享的 factor_category
         :param factor_name: 共享的 factor_name
         :param series: 一个 Pandas Series，索引为 symbol，值为因子值
         :param data_ts: 共享的时间戳
         """
-        connection = None
+        if not self.connection:
+            raise ConnectionError("No active database connection. Use the context manager (with statement) to open a connection.")
+
         cursor = None
         try:
-            # 建立数据库连接，带有自动重试机制
-            connection = self.connect()
-            if not connection:
-                return  # 如果没有连接上，不继续执行插入
-    
             # 过滤掉空值（None 或 NaN）
-            filtered_series = series.dropna()
-    
+            filtered_series = series.replace([np.inf, -np.inf], np.nan).dropna()
+
             if filtered_series.empty:
                 return  # 如果过滤后没有数据，则不进行插入
-    
+
             # 执行批量插入操作
-            cursor = connection.cursor()
+            cursor = self.connection.cursor()
             insert_query = """
             INSERT INTO factors_update (author, factor_category, factor_name, symbol, factor_value, data_ts)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -142,20 +125,19 @@ class DatabaseHandler:
                 (author, factor_category, factor_name, symbol, factor_value, data_ts)
                 for symbol, factor_value in filtered_series.items()
             ]
-    
+
             # 批量执行插入操作
             cursor.executemany(insert_query, data_to_insert)
-            connection.commit()
-    
+            self.connection.commit()
+
         except pymysql.MySQLError as e:
             self.log.error(f"Error while batch inserting or updating data: {e}")
-    
+            self.connection.rollback()  # 回滚事务
+
         finally:
-            # 关闭游标和连接
-            if cursor:  # 检查 cursor 是否已成功创建
+            # 关闭游标
+            if cursor:
                 cursor.close()
-            if connection:
-                connection.close()
 
 
 # %%

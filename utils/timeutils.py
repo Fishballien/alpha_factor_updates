@@ -97,3 +97,19 @@ def get_curr_utc_date():
     """
     now = datetime.utcnow()
     return get_date_based_on_timestamp(now)
+
+
+# %%
+def round_up_timestamp(timestamp, interval_seconds=3):
+    """
+    将时间戳向后取整到指定秒数的倍数。
+    
+    :param timestamp: int, 时间戳，单位为毫秒。
+    :param interval_seconds: int, 时间间隔，单位为秒，默认为3秒。
+    :return: int, 向后取整后的时间戳，单位为毫秒。
+    """
+    interval_ms = interval_seconds * 1000  # 转换为毫秒
+    remainder = timestamp % interval_ms
+    if remainder == 0:
+        return timestamp
+    return timestamp + (interval_ms - remainder)

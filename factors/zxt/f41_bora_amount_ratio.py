@@ -14,7 +14,6 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 # %% imports
 import sys
 from pathlib import Path
-from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
@@ -28,7 +27,7 @@ sys.path.append(str(project_dir))
 # %%
 from core.factor_updater import FactorUpdaterTsFeatureOfSnapsWithTickSize
 from core.cache_persist_manager import CacheManager, PersistenceManager
-from core.immediate_process_manager import (ImmediateProcessManager, LevelProcessor, Processor,
+from core.immediate_process_manager import (ImmediateLevelManager, LevelProcessor,
                                             extract_arrays_from_pb_msg)
 from utils.decorator_utils import timeit
 
@@ -87,7 +86,7 @@ def process_snapshot(*args, multiplier_list, tick_size):
     return results
 
 
-class MyImmediateProcessMgr(ImmediateProcessManager):
+class MyImmediateProcessMgr(ImmediateLevelManager):
 
     def load_info(self, param, tick_size_mapping):
         self.param = param
@@ -97,22 +96,13 @@ class MyImmediateProcessMgr(ImmediateProcessManager):
         cache_factors = factors_related['intermediate']
         self.multiplier_list = cache_factors['multiplier']
     
-    def _init_container(self):
-        self.container = {}
-        self.factor = defaultdict(dict)
-        self.update_time = {}
-    
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel'] = self._process_cc_level_msg
+        self.topic_func_mapping['CCRngLevel1'] = self._process_cc_level_msg
     
-    def _process_cc_level_msg(self, pb_msg):
-        p = Processor(pb_msg)
-        self.container[p.symbol] = p
-
-    def get_one_snapshot(self):
+    def get_one_snapshot(self, ts, min_lob):
         with ProcessPoolExecutor(max_workers=5) as executor:
             futures = {}
-            for symbol, p in list(self.container.items()):
+            for symbol, p in list(min_lob.items()):
                 pb_msg = p.pb_msg
                 ts = p.ts
                 arrays = extract_arrays_from_pb_msg(pb_msg)
@@ -168,7 +158,7 @@ class F41(FactorUpdaterTsFeatureOfSnapsWithTickSize):
         self.persist_mgr = MyPersistenceMgr(self.params, self.param_set, self.persist_dir, log=self.log)
 
     @timeit
-    def _final_calc_n_send(self, ts):
+    def _final_calc(self, ts):
         temp_dict = {}
         for pr in self.param_set:
             side_type = pr['side_type']
@@ -183,7 +173,7 @@ class F41(FactorUpdaterTsFeatureOfSnapsWithTickSize):
             else:
                 mmt_wd_lookback = self.mmt_wd_lookback_mapping[mmt_wd]
                 factor_final = factor_per_minute.loc[ts-mmt_wd_lookback:].mean(axis=0)
-            self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
+            # self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
             temp_dict[pr_name] = factor_final
         return temp_dict
     

@@ -46,6 +46,7 @@ class FactorUpdater(ABC):
         self._init_dir()
         self._load_param()
         self._load_param_info()
+        self._load_exchange_info_detail()
         self._init_log()
         self._init_msg_controller()
         self._init_database_handler()
@@ -85,6 +86,11 @@ class FactorUpdater(ABC):
         if factor_related:
             final_param = factor_related.get('final')
             self.param_set = para_allocation(final_param) if final_param else {}
+            
+    def _load_exchange_info_detail(self):
+        self.exchange_info_dir = Path(self.path_config['exchange_info'])
+        exchange = self.params['exchange']
+        self.exchange = globals()[exchange]
 
     def _init_log(self):
         self.log = FishStyleLogger()
@@ -130,14 +136,8 @@ class FactorUpdaterWithTickSize(FactorUpdater):
     
     def __init__(self):
         super().__init__()
-        self._init_exchange()
         self.reload_tick_size_mapping(0)
-        
-    def _init_exchange(self):
-        exchange = self.params['exchange']
-        self.exchange_info_dir = Path(self.path_config['exchange_info'])
-        self.exchange = globals()[exchange]
-        
+
     def reload_tick_size_mapping(self, ts):
         exchange_info = load_binance_data(self.exchange, self.exchange_info_dir)
         self.tick_size_mapping = get_binance_tick_size(exchange_info)
@@ -152,8 +152,22 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         self._init_lookback_mapping()
         self._init_task_scheduler()
         self._init_managers()
+        self.reload_exchange_info(0)
         self._add_tasks()
         tracemalloc.start()
+        
+    def reload_exchange_info(self, ts):
+        exchange_info = load_binance_data(self.exchange, self.exchange_info_dir)
+        trading_symbols = [symbol_info['symbol'].lower() for symbol_info in exchange_info['symbols']
+                           if (
+                                   symbol_info['status'] == 'TRADING' 
+                                   and symbol_info['symbol'].endswith('USDT')
+                               )]
+        self.trading_symbols = sorted(trading_symbols)
+        self._notify_exchange_info(self.trading_symbols)
+        
+    def _notify_exchange_info(self, trading_symbols):
+        self.immediate_mgr.reset_trading_symbols(trading_symbols)
     
     @abstractmethod
     def _init_param_names(self):
@@ -185,6 +199,8 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
                                              self._final_calc_n_send_n_record)
         self.task_scheduler['calc'].add_task("1 Minute Log Queue Size", 'minute', 1, self._log_queue_size)
+        self.task_scheduler['calc'].add_task("Reload Exchange Info", 'specific_time', ['00:05'], 
+                                     self.reload_exchange_info)
         # self.task_scheduler['calc'].add_task("1 Minute Monitor", 'minute', 1, self._monitor_usage)
         
         ## io
@@ -193,24 +209,55 @@ class FactorUpdaterTsFeatureOfSnaps(FactorUpdater):
         
     @timeit
     def _get_snapshot(self, ts):
-        self.immediate_mgr.get_one_snapshot()
-
+        self._wait_for_complete_ts_data(ts)
+        min_lob = self.immediate_mgr.get_minute_lob(ts)
+        self.immediate_mgr.get_one_snapshot(ts, min_lob)
+        self.immediate_mgr.clear_container_before_ts(ts)
+    
+    @timeit
+    def _wait_for_complete_ts_data(self, ts):
+        while True:
+            if self.immediate_mgr.newest_ts <= ts:
+                time.sleep(1)
+            else:
+                break
+            
     @timeit
     def _iv_record(self, ts):
         for name, iv in list(self.immediate_mgr.factor.items()):
             self.cache_mgr.add_row(name, iv, ts)
     
     def _final_calc_n_send_n_record(self, ts):
-        temp_dict = self._final_calc_n_send(ts)
+        temp_dict = self._final_calc(ts)
+        self._final_send(ts, temp_dict)
         self._final_record(ts, temp_dict)
         
     @abstractmethod
-    def _final_calc_n_send(self, ts):
+    def _final_calc(self, ts):
         pass
     
     @timeit
+    def _final_send(self, ts, temp_dict):
+        with self.db_handler as db:
+            for pr_name, factor_info in temp_dict.items():
+                data_to_write = {
+                    'author': self.author,
+                    'category': self.category,
+                    'pr_name': pr_name, 
+                    'factor_final': None,
+                    'ts': ts,
+                    }
+                if isinstance(factor_info, dict):
+                    for k, v in factor_info.items():
+                        data_to_write[k] = v
+                else:
+                    data_to_write['factor_final'] = factor_info
+                db.batch_insert_data(*data_to_write.values())
+    
+    @timeit
     def _final_record(self, ts, temp_dict):
-        for pr_name, factor_new_row in temp_dict.items():
+        for pr_name, factor_info in temp_dict.items():
+            factor_new_row = factor_info['factor_final'] if isinstance(factor_info, dict) else factor_info
             self.persist_mgr.add_row(pr_name, factor_new_row, ts)
             
         self.persist_mgr.add_row('update_time', self.immediate_mgr.update_time, ts)
@@ -278,6 +325,8 @@ class FactorUpdaterTsFeatureOfSnapsWithTickSize(FactorUpdaterTsFeatureOfSnaps,
         self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
                                              self._final_calc_n_send_n_record)
         self.task_scheduler['calc'].add_task("1 Minute Log Queue Size", 'minute', 1, self._log_queue_size)
+        self.task_scheduler['calc'].add_task("Reload Exchange Info", 'specific_time', ['00:05'], 
+                                     self.reload_exchange_info)
         self.task_scheduler['calc'].add_task("Reload Tick Size Mapping", 'specific_time', ['00:05'], 
                                      self.reload_tick_size_mapping)
         
@@ -300,7 +349,42 @@ class FactorUpdaterTsFeatureOfSnapsWithTickSize(FactorUpdaterTsFeatureOfSnaps,
 #         self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
 # =============================================================================
     
-            
+
+class FactorUpdaterTsFeatureOfSnapsTest(FactorUpdaterTsFeatureOfSnaps):
+    
+    def _final_calc_n_send_n_record(self, ts):
+        return
+        temp_dict = self._final_calc(ts)
+        self._final_send(ts, temp_dict)
+        self._final_record(ts, temp_dict)
+        
+    def _add_tasks(self): # default
+        # 按同时触发时预期的执行顺序排列
+        # 本部分需要集成各类参数与mgr，故暂不做抽象
+        # 此处时间参数应为1min和30min，为了测试更快看到结果，暂改为1min -> 3s，30min -> 1min
+        
+        ## calc
+        self.task_scheduler['calc'].add_task("1 Minute Get Snapshot", 'minute', 1, self._get_snapshot)
+        self.task_scheduler['calc'].add_task("1 Minute Record", 'minute', 1, self._iv_record)
+        self.task_scheduler['calc'].add_task("30 Minutes Final and Send", 'minute', 30, 
+                                             self._final_calc_n_send_n_record)
+        self.task_scheduler['calc'].add_task("1 Minute Log Queue Size", 'minute', 1, self._log_queue_size)
+        self.task_scheduler['calc'].add_task("Reload Exchange Info", 'specific_time', ['00:05'], 
+                                     self.reload_exchange_info)
+        # self.task_scheduler['calc'].add_task("1 Minute Monitor", 'minute', 1, self._monitor_usage)
+        
+        ## io
+        self.task_scheduler['io'].add_task("5 Minutes Save to Cache", 'minute', 5, self._save_to_cache)
+        self.task_scheduler['io'].add_task("30 Minutes Save to Persist", 'minute', 30, self._save_to_final)
+        
+        
+    def run(self):
+        self.msg_controller.start() # 占一条线程，用于收取lord消息存队列
+        self.immediate_mgr.start() # 占一条线程，用于即时处理队列消息
+        # self.task_scheduler['io'].start() # 占2跳线程：处理任务 + 任务调度
+        self.task_scheduler['calc'].start(use_thread_for_task_runner=False) # 主线程：处理任务 + 辅助线程：任务调度
+        
+        
 # %%
 def convert_size(size_bytes):
     """

@@ -29,48 +29,53 @@ from core.factor_updater import FactorUpdaterTsFeatureOfSnapsWithTickSize
 from core.cache_persist_manager import CacheManager, GeneralPersistenceMgr
 from core.immediate_process_manager import (ImmediateLevelManager, LevelProcessor, 
                                             extract_arrays_from_pb_msg)
-from utils.calc import calc_imb, compute_slope
+from utils.calc import calc_imb
 from utils.decorator_utils import timeit
-from utils.formatters import decimal_to_string
 
 
 # %% cache & persist
 class MyCacheMgr(CacheManager):
     
     def init_cache_mapping(self):
-        final_factors = self.params['factors_related']['final']
-        x_type_list = final_factors['x_type']
-        pct_h_list = final_factors['pct_h']
-        pct_h_names = [decimal_to_string(pct_h) for pct_h in pct_h_list]
-        self.cache_mapping = {(x_type, pct_h): '_'.join((x_type, pct_h_name))
-                              for x_type in x_type_list
-                              for pct_h, pct_h_name in zip(pct_h_list, pct_h_names)
-                              }
+        amount_type_list = self.params['factors_related']['final']['amount_type']
+        self.cache_mapping = {amount_type: f'{amount_type}'
+                              for amount_type in amount_type_list}
         
         
 # %% immediate process
-def process_snapshot(*args, x_type_list, pct_h_list, tick_size):
+def process_snapshot(*args, multiplier_list, tick_size):
     lp = LevelProcessor(*args)
     lp.load_tick_size(tick_size)
     
     results = {}
     
-    x_by_level = {
-        'pct': lp.prices_pct_by_level,
-        'layer': lp.prices_layer_by_level,
-        'tick': lp.prices_tick_by_level,
-    }
-    amt_cum_ratio_sorted_by_level = lp.amt_cum_ratio_sorted_by_level
+    total_amt = lp.total_amt_sum
+    imb = calc_imb(total_amt['bid'], total_amt['ask'])
+    results['total'] = imb
     
-    for x_type in x_type_list:
-        x = x_by_level[x_type]
-        for pct_h in pct_h_list:
-            h_idx = lp.get_range_idx_on_sorted(lt=pct_h)
-            h_slope = {side: compute_slope(x[side][h_idx[side]], 
-                                           amt_cum_ratio_sorted_by_level[side][h_idx[side]])
-                       for side in ('bid', 'ask')}
-            h_imb = calc_imb(h_slope['bid'], h_slope['ask'])
-            results[(x_type, pct_h)] = h_imb
+    for multiplier in multiplier_list:
+        if_ticktimes_amt = lp.get_if_ticktimes_amt_sum(multiplier)
+        extract_amt = lp.get_extract_ticktimes_amt_sum(multiplier)
+        
+        # if multiplier == 100:
+        # breakpoint()
+        # if_ticktimes = lp.get_if_ticktimes(multiplier)
+        # price = lp.price
+        # volume = lp.volume
+        # bid_price = price['bid'][if_ticktimes['bid'].astype(bool)]
+        # ask_price = price['ask'][if_ticktimes['ask'].astype(bool)]
+        # bid_volume = volume['bid'][if_ticktimes['bid'].astype(bool)]
+        # ask_volume = volume['ask'][if_ticktimes['ask'].astype(bool)]
+        # bid_amt = np.sum(bid_price * bid_volume)
+        # ask_amt = np.sum(ask_price * ask_volume)
+        # imb = calc_imb(bid_amt, ask_amt)
+        
+
+        imb_if_ticktimes = calc_imb(if_ticktimes_amt['bid'], if_ticktimes_amt['ask'])
+        imb_extract = calc_imb(extract_amt['bid'], extract_amt['ask'])
+        
+        results[f'ticktimes{int(multiplier)}'] = imb_if_ticktimes
+        results[f'extract_ticktimes{int(multiplier)}'] = imb_extract
 
     return results
 
@@ -82,30 +87,28 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
         self.tick_size_mapping = tick_size_mapping
         
         factors_related = self.param['factors_related']
-        final_factors = factors_related['final']
-        self.x_type_list = final_factors['x_type']
-        self.pct_h_list = final_factors['pct_h']
+        cache_factors = factors_related['intermediate']
+        self.multiplier_list = cache_factors['multiplier']
     
     def _init_topic_func_mapping(self):
         self.topic_func_mapping['CCRngLevel1'] = self._process_cc_level_msg
-
-    def get_one_snapshot(self, ts, min_lob):
+    
+    def get_one_snapshot(self, ts):
         with ProcessPoolExecutor(max_workers=5) as executor:
             futures = {}
-            for symbol, p in list(min_lob.items()):
+            for symbol, p in list(self.container[ts].items()):
                 pb_msg = p.pb_msg
                 ts = p.ts
                 arrays = extract_arrays_from_pb_msg(pb_msg)
-
+                
                 try:
                     tick_size = self.tick_size_mapping[symbol]
                 except KeyError:
                     self.log.error(f'Tick size of {symbol} does not exist!')
                     continue
-
+                
                 future = executor.submit(process_snapshot, *arrays, 
-                                         x_type_list=self.x_type_list,
-                                         pct_h_list=self.pct_h_list,
+                                         multiplier_list=self.multiplier_list, 
                                          tick_size=tick_size)
                 futures[future] = (symbol, ts)
 
@@ -114,9 +117,9 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
                     results = future.result()
                     symbol, ts = futures[future]
 
-                    for key, h_imb in results.items():
-                        self.factor[key][symbol] = h_imb
-
+                    for key, imb in results.items():
+                        self.factor[key][symbol] = imb
+                    
                     self.update_time[symbol] = ts
 
                 except Exception as exc:
@@ -124,21 +127,21 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
         
 
 # %%
-class F59(FactorUpdaterTsFeatureOfSnapsWithTickSize):
+class F40(FactorUpdaterTsFeatureOfSnapsWithTickSize):
     
-    name = 'f59_h_slope_ratio'
+    name = 'f40_bidask_amount_ratio'
     
     def __init__(self):
         super().__init__()
-    
+        breakpoint()
+        
     def _init_param_names(self):
         for pr in self.param_set:
-            x_type = pr['x_type']
-            pct_h = decimal_to_string(pr['pct_h'])
+            amount_type = pr['amount_type']
             mmt_wd = pr['mmt_wd']
             suffix = '' if mmt_wd == '0min' else f'_mmt{mmt_wd}_ma'
-            pr['name'] = f'x{x_type}_{pct_h}_h{suffix}'
-        
+            pr['name'] = f'{amount_type}{suffix}'
+
     def _init_managers(self):
         # 即时记录
         self.immediate_mgr = MyImmediateProcessMgr(self.topic_list, self.msg_controller, log=self.log)
@@ -152,11 +155,10 @@ class F59(FactorUpdaterTsFeatureOfSnapsWithTickSize):
     def _final_calc(self, ts):
         temp_dict = {}
         for pr in self.param_set:
-            x_type = pr['x_type']
-            pct_h = pr['pct_h']
+            amount_type = pr['amount_type']
             mmt_wd = pr['mmt_wd']
             pr_name = pr['name']
-            factor_per_minute = self.cache_mgr[(x_type, pct_h)]
+            factor_per_minute = self.cache_mgr[amount_type]
             if len(factor_per_minute) == 0:
                 continue
             if mmt_wd == '0min':
@@ -167,10 +169,35 @@ class F59(FactorUpdaterTsFeatureOfSnapsWithTickSize):
             # self.db_handler.batch_insert_data(self.author, self.category, pr_name, factor_final, ts)
             temp_dict[pr_name] = factor_final
         return temp_dict
+
     
-        
 # %%
 if __name__=='__main__':
-    updater = F59()
-    updater.run()
+    import pandas as pd
+    import numpy as np
+    
+    multiplier_list = [10, 100, 1000]
+    tick_size = 0.00001
+    
+    save_dir = Path(r'D:\crypto\DataProcessing\lob_shape\sample_data\compare\yl\steemusdt\20241223_0.2')
+    name = '2024-12-23_183000.parquet'
+    lob_path = save_dir / name
+    raw_lob = pd.read_parquet(lob_path)
+    bid_side_idx = raw_lob['lob_bid'] > 0
+    ask_side_idx = raw_lob['lob_ask'] > 0
+    bid_lob = raw_lob[bid_side_idx]
+    ask_lob = raw_lob[ask_side_idx]
+    bid_price_arr = bid_lob['price'][::-1].values
+    bid_volume_arr = bid_lob['lob_bid'][::-1].values
+    bid_level_arr = np.arange(1, len(bid_lob)+1, 1)
+    ask_price_arr = ask_lob['price'].values
+    ask_volume_arr = ask_lob['lob_ask'].values
+    ask_level_arr = np.arange(1, len(ask_lob)+1, 1)
+    
+    res = process_snapshot(*(bid_price_arr, bid_volume_arr, bid_level_arr, 
+                             ask_price_arr, ask_volume_arr, ask_level_arr), 
+                           multiplier_list=multiplier_list, tick_size=tick_size)
+    breakpoint()
+    
+
         

@@ -100,9 +100,9 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
         self.r1_func = getattr(r1_module, factor_name)
 
     def _init_topic_func_mapping(self):
-        self.topic_func_mapping['CCRngLevel1'] = self._process_cc_level_msg
+        self.topic_func_mapping['CCLevel'] = self._process_cc_level_msg
     
-    def get_one_snapshot(self, ts, min_lob):
+    def get_one_snapshot(self, ts):
 # =============================================================================
 #         from tqdm import tqdm
 #         for symbol, p in tqdm(list(self.container.items()), desc='get_snapshot'):
@@ -131,7 +131,7 @@ class MyImmediateProcessMgr(ImmediateLevelManager):
 
         with ProcessPoolExecutor(max_workers=5) as executor:
             futures = {}
-            for symbol, p in list(min_lob.items()):
+            for symbol, p in list(self.container[ts].items()):
                 pb_msg = p.pb_msg
                 ts = p.ts
                 arrays = extract_arrays_from_pb_msg(pb_msg)
@@ -247,18 +247,32 @@ class FChatgptV0(FactorUpdaterTsFeatureOfSnaps):
         
 # %%
 if __name__=='__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-f', '--factor_name', type=str, help='factor_name')
-    parser.add_argument('-b', '--batch_name', type=str, help='batch_name')
-
-    args = parser.parse_args()
+    import pandas as pd
+    import numpy as np
     
-    # factor_name = 'AbsolutePriceGradient'
-    # batch_name = 'batch_241109'
+    max_level = 2000
     
-    factor_name = args.factor_name
-    batch_name = args.batch_name
+    save_dir = Path(r'D:\crypto\DataProcessing\lob_shape\sample_data\compare\yl')
+    name = '0.parquet'
+    lob_path = save_dir / name
+    raw_lob = pd.read_parquet(lob_path)
+    bid_side_idx = raw_lob['lob_bid'] > 0
+    ask_side_idx = raw_lob['lob_ask'] > 0
+    bid_lob = raw_lob[bid_side_idx]
+    ask_lob = raw_lob[ask_side_idx]
+    bid_price_arr = bid_lob['price'][::-1]
+    bid_volume_arr = bid_lob['lob_bid'][::-1]
+    bid_level_arr = np.arange(1, len(bid_lob)+1, 1)
+    ask_price_arr = ask_lob['price']
+    ask_volume_arr = ask_lob['lob_ask']
+    ask_level_arr = np.arange(1, len(ask_lob)+1, 1)
     
-    updater = FChatgptV0(factor_name, batch_name)
-    updater.run()
-        
+    lp = LevelProcessorForChatgptV0(*(bid_price_arr, bid_volume_arr, bid_level_arr, 
+                                      ask_price_arr, ask_volume_arr, ask_level_arr))
+    lob_within_level = lp.lob_within_level(max_level)
+    
+    bid_path = r'D:/crypto/multi_factor/factor_test_by_alpha/debug/241207/2024-12-08_xemusdt_ylsource_L2000/2024-12-08 01-00-00_bid.parquet'
+    ask_path = r'D:/crypto/multi_factor/factor_test_by_alpha/debug/241207/2024-12-08_xemusdt_ylsource_L2000/2024-12-08 01-00-00_ask.parquet'
+    
+    bid_data = pd.read_parquet(bid_path)
+    ask_data = pd.read_parquet(ask_path)

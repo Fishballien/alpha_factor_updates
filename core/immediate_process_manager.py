@@ -14,14 +14,22 @@ emoji: 🔔 ⏳ ⏰ 🔒 🔓 🛑 🚫 ❗ ❓ ❌ ⭕ 🚀 🔥 💧 💡 🎵
 # %% imports
 from abc import ABC, abstractmethod
 import numpy as np
+import pandas as pd
 from functools import cached_property
 from enum import Enum
+from collections import defaultdict
+import threading
+from datetime import timedelta
+from pympler import asizeof
 
 
 from utils.decorator_utils import run_by_thread
 from utils.data_parser import convert_to_lowercase
 from utils.calc import if_ticktimes
 from utils.market import MINIMUM_SIZE_FILTER
+from utils.timeutils import round_up_timestamp
+from utils.decorator_utils import timeit
+from utils.data_parser import deserialize_pb
 
 
 # %%
@@ -36,6 +44,7 @@ class ImmediateProcessManager(ABC):
         self._init_container()
         self._init_topic_func_mapping()
         self._running = True
+        self.lock = defaultdict(threading.Lock)
         
     @abstractmethod
     def _init_container(self):
@@ -50,6 +59,21 @@ class ImmediateProcessManager(ABC):
         while self._running:
             pb_msg = self.msg_controller[topic].get()
             self.topic_func_mapping[topic](pb_msg)
+                    
+# =============================================================================
+#     @run_by_thread
+#     def _loop_processing(self, topic):
+#         while self._running:
+#             data, pb_class = self.msg_controller[topic].get()
+#             pb_msg = deserialize_pb(data, pb_class)
+#             # print(asizeof.asizeof(pb_msg))  # 真实内存占用，含引用对象
+#             if pb_msg:
+#                 header = pb_msg.header
+#                 symbol = convert_to_lowercase(header.symbol)
+#                 if symbol.endswith('usdt'):
+#                     self.topic_func_mapping[topic](pb_msg)
+# =============================================================================
+            
             
     def log_queue_size(self):
         for topic in self.topic_list:
@@ -62,6 +86,128 @@ class ImmediateProcessManager(ABC):
     def stop(self):
         self._running = False
         
+    def reset_trading_symbols(self, trading_symbols):
+        with self.lock['trading_symbols']:
+            self.trading_symbols = trading_symbols
+        
+        
+class ImmediateLevelManager(ImmediateProcessManager):
+    
+    def __init__(self, topic_list, msg_controller, log=None, valid_min=1, accept_range_in_seconds=15):
+        super().__init__(topic_list, msg_controller, log=log)
+        self.valid_min = valid_min
+        self.accept_range_in_seconds = accept_range_in_seconds
+    
+    def _init_container(self):
+        self.container = defaultdict(dict)
+        self.factor = defaultdict(dict)
+        self.update_time = {}
+        self.newest_ts = pd.to_datetime(0, unit='ms')
+    
+    # def _process_cc_level_msg(self, pb_msg):
+    #     p = Processor(pb_msg)
+    #     ts = round_up_timestamp(p.ts)
+    #     ts_in_dt = pd.to_datetime(ts, unit='ms')
+    #     self.newest_ts = ts_in_dt if ts_in_dt > self.newest_ts else self.newest_ts
+    #     with self.lock['container']:
+    #         self.container[ts_in_dt][p.symbol] = p  # 只接收并存储到 container 中
+
+    def _process_cc_level_msg(self, pb_msg):
+        header = pb_msg.header
+        symbol = convert_to_lowercase(header.symbol)
+        ts_org = header.timestamp // 1e3
+        ts = round_up_timestamp(ts_org)
+        ts_in_dt = pd.to_datetime(ts, unit='ms')
+        self.newest_ts = ts_in_dt if ts_in_dt > self.newest_ts else self.newest_ts
+
+        # 只保留距离下一个整分钟 n 秒以内的数据
+        seconds_to_next_minute = 60 - ts_in_dt.second - ts_in_dt.microsecond / 1e6
+        if seconds_to_next_minute > self.accept_range_in_seconds:
+            return  # 不在最后 n 秒内，跳过
+
+        with self.lock['container']:
+            self.container[ts_in_dt][symbol] = (pb_msg, ts_org)
+            
+    def get_minute_lob(self, ts):
+        min_lob = {}
+        ts_list = sorted(list(self.container.keys()), reverse=True)
+        with self.lock['trading_symbols']:
+            for symbol in self.trading_symbols:
+                for t in ts_list:
+                    if t > ts:
+                        continue
+                    if t < ts - timedelta(minutes=self.valid_min):
+                        break
+                    if symbol in self.container[t]:
+                        min_lob[symbol] = self.container[t][symbol]
+                        break
+            missing = [symbol for symbol in self.trading_symbols if symbol not in min_lob]
+            msg = f'trading: {len(self.trading_symbols)} rcv: {len(min_lob)} missing: {missing}'
+            if missing:
+                self.log.warning(msg)
+            else:
+                self.log.info(msg)
+        return min_lob
+    
+    @timeit
+    def clear_container_before_ts(self, ts):
+        with self.lock['container']:
+            for t in list(self.container.keys()):
+                if t <= ts - timedelta(minutes=self.valid_min):
+                    del self.container[t]
+        print(len(self.container.keys()))
+        
+        
+class ImmediateLevelManagerFromDict(ImmediateLevelManager):
+    
+    def __init__(self, topic_list, msg_controller, log=None, valid_min=1, accept_range_in_seconds=15):
+        super().__init__(topic_list, msg_controller, log=log, valid_min=valid_min,
+                         accept_range_in_seconds=accept_range_in_seconds)
+    
+    def _init_container(self):
+        self.topic = self.topic_list[0]
+        self.factor = defaultdict(dict)
+        self.update_time = {}
+        
+    @property
+    def newest_ts(self):
+        return max(list(self.msg_controller._queue_map[self.topic].keys())) if len(self.msg_controller._queue_map[self.topic]) > 0 else pd.to_datetime(0, unit='ms')
+    
+    @timeit
+    def clear_container_before_ts(self, ts):
+        # with self.msg_controller.lock:
+        for t in list(self.msg_controller._queue_map[self.topic].keys()):
+            if t <= ts - timedelta(minutes=self.valid_min):
+                del self.msg_controller._queue_map[self.topic][t]
+        print(len(self.msg_controller._queue_map[self.topic].keys()))
+        
+    def get_minute_lob(self, ts):
+        min_lob = {}
+        ts_list = sorted(list(self.msg_controller._queue_map[self.topic].keys()), reverse=True)
+        with self.lock['trading_symbols']:
+            for symbol in self.trading_symbols:
+                for t in ts_list:
+                    if t > ts:
+                        continue
+                    if t < ts - timedelta(minutes=self.valid_min):
+                        break
+                    if symbol in self.msg_controller._queue_map[self.topic][t]:
+                        min_lob[symbol] = self.msg_controller._queue_map[self.topic][t][symbol]
+                        break
+            missing = [symbol for symbol in self.trading_symbols if symbol not in min_lob]
+            msg = f'trading: {len(self.trading_symbols)} rcv: {len(min_lob)} missing: {missing}'
+            if missing:
+                self.log.warning(msg)
+            else:
+                self.log.info(msg)
+        return min_lob
+        
+    def start(self):
+        pass
+    
+    def log_queue_size(self):
+        pass
+                
         
 # %% Processor
 class Processor:
@@ -108,6 +254,8 @@ class LevelProcessor:
         self._check_and_set_valid('ask')
     
     def _check_and_set_valid(self, side):
+        assert self._bid_level[0] == 1
+        assert self._ask_level[0] == 1
         # 减少 get 和 set 的次数，直接访问属性
         volume_arr = getattr(self, f'_{side}_volume')
         valid_idx = volume_arr > MINIMUM_SIZE_FILTER
@@ -135,7 +283,7 @@ class LevelProcessor:
 
     @cached_property
     def best_price(self):
-        return {'bid': self.price['bid'][0], 'ask': self.price['ask'][-1]}
+        return {'bid': self.price['bid'][0], 'ask': self.price['ask'][0]}
     
     @cached_property
     def mid_price(self):
@@ -164,15 +312,19 @@ class LevelProcessor:
         return np.mean(self.all_amt)
     
     @cached_property
+    def all_amt_median(self):
+        return np.median(self.all_amt)
+    
+    @cached_property
     def all_amt_std(self):
         return np.std(self.all_amt)
     
     @cached_property
     def prices_sorted_by_level(self):
-        bid_price_sorted = self.price['bid'][::-1]
+        bid_price_sorted = self.price['bid'] #[::-1]
         ask_price_sorted = self.price['ask']
         return {'bid': bid_price_sorted, 'ask': ask_price_sorted}
-    
+
     @cached_property
     def prices_pct_by_level(self):
         bid_sorted, ask_sorted = self.prices_sorted_by_level['bid'], self.prices_sorted_by_level['ask']
@@ -203,7 +355,7 @@ class LevelProcessor:
     
     @cached_property
     def amt_sorted_by_level(self):
-        bid_amt_sorted = self.side_amt['bid'][::-1]
+        bid_amt_sorted = self.side_amt['bid'] #[::-1]
         ask_amt_sorted = self.side_amt['ask']
         return {'bid': bid_amt_sorted, 'ask': ask_amt_sorted}
     
@@ -236,14 +388,15 @@ class LevelProcessor:
     
     def get_if_ticktimes_amt_sum(self, multiplier):
         if_ticktimes = self.get_if_ticktimes(multiplier)
-        return {side: np.sum(self.side_amt[side][if_ticktimes[side]]) for side in ('bid', 'ask')}
+        return {side: np.sum(self.side_amt[side][if_ticktimes[side].astype(bool)]) for side in ('bid', 'ask')}
     
     def get_extract_ticktimes_amt_sum(self, multiplier):
         if_ticktimes = self.get_if_ticktimes(multiplier)
-        return {side: np.sum(self.side_amt[side][~if_ticktimes[side]]) for side in ('bid', 'ask')}
+        return {side: np.sum(self.side_amt[side][~if_ticktimes[side].astype(bool)]) for side in ('bid', 'ask')}
     
     def get_n_sigma_thres(self, n):
-        return self.all_amt_mean + n * self.all_amt_std
+        # breakpoint()
+        return self.all_amt_median + n * self.all_amt_std
     
     def get_gt_n_sigma_idx(self, n):
         thres = self.get_n_sigma_thres(n)
@@ -270,13 +423,9 @@ class LevelProcessorForChatgptV0(LevelProcessor):
     
     @cached_property
     def lob_all(self, MIN_VOLUME = 1e-6):
-        price_sorted = {side: self.price[side][::-1] if side == 'bid' else self.price[side]
-                        for side in self.price}
-        volume_sorted = {side: self.volume[side][::-1] if side == 'bid' else self.volume[side]
-                        for side in self.volume}
-        valid_idx = {side: volume_sorted[side] > MIN_VOLUME for side in volume_sorted}
-        lob_all = {side: np.column_stack((price_sorted[side][valid_idx[side]], 
-                                          volume_sorted[side][valid_idx[side]]))
+        valid_idx = {side: self.volume[side] > MIN_VOLUME for side in self.volume}
+        lob_all = {side: np.column_stack((self.price[side][valid_idx[side]], 
+                                          self.volume[side][valid_idx[side]]))
                    for side in valid_idx}
         return lob_all
     

@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package message;
+
+import "cclob.proto";
+
+message CCBarSizeMsg {
+    MsgHeader header = 1;
+    string freq = 2;   // '1m'
+    int64 timestamp = 3;  // 后面整分钟时间, millisecond
+    double open = 4;
+    double close = 5;
+    double high = 6;
+    double low = 7;
+    CCSizeBarCluster size_bar_clusters_quantile = 8;
+    CCSizeBarCluster size_bar_clusters_std = 9;
+}
+
+message CCSizeBarCluster {
+    CCSizeBar B_small_size = 1;
+    CCSizeBar B_mid_size = 2;
+    CCSizeBar B_large_size = 3;
+    CCSizeBar B_x_large_size = 4;
+    CCSizeBar S_small_size = 5;
+    CCSizeBar S_mid_size = 6;
+    CCSizeBar S_large_size = 7;
+    CCSizeBar S_x_large_size = 8;
+    CCSizeBar all_small_size = 9;
+    CCSizeBar all_mid_size = 10;
+    CCSizeBar all_large_size = 11;
+    CCSizeBar all_x_large_size = 12;
+}
+
+message CCSizeBar {
+    double volume = 1;
+    double turnover = 2;
+    double tradenum = 3;
+}
